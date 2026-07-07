@@ -36,14 +36,13 @@ class SF_TRON2A_SceneCfg(InteractiveSceneCfg):
         terrain_generator=None,
         max_init_terrain_level=0,
         collision_group=-1,
-        #physics_material=RigidBodyMaterialCfg(
-        #    friction_combine_mode="multiply",
-        #    restitution_combine_mode="multiply",
-        #    static_friction=1.0,
-        #    dynamic_friction=1.0,
-        #    restitution=1.0,
-        #),
-        physics_material=None,
+        physics_material=RigidBodyMaterialCfg(
+            friction_combine_mode="multiply",
+            restitution_combine_mode="multiply",
+            static_friction=1.0,
+            dynamic_friction=1.0,
+            restitution=1.0,
+        ),
         visual_material=MdlFileCfg(
             mdl_path=f"{ISAACLAB_NUCLEUS_DIR}/Materials/TilesMarbleSpiderWhiteBrickBondHoned/"
             + "TilesMarbleSpiderWhiteBrickBondHoned.mdl",
@@ -646,14 +645,7 @@ class SF_TRON2A_EnvCfg(ManagerBasedRLEnvCfg):
         # simulation settings
         self.sim.dt = 0.005
         self.sim.render_interval = self.decimation
-        #self.sim.physics_material = self.scene.terrain.physics_material
-        self.sim.physics_material = RigidBodyMaterialCfg(
-            friction_combine_mode="multiply",
-            restitution_combine_mode="multiply",
-            static_friction=1.0,
-            dynamic_friction=1.0,
-            restitution=1.0,
-        )
+        self.sim.physics_material = self.scene.terrain.physics_material
         self.sim.physx.gpu_max_rigid_patch_count = 10 * 2**15
 
         # update sensor update periods
