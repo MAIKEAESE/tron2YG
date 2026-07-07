@@ -80,3 +80,14 @@ class WF_TRON2AFlatPPORunnerCfg(RslRlOnPolicyRunnerCfg):
         activation = "elu",
         orthogonal_init = False,
     )
+
+#-----------------------------------------------------------------
+@configclass
+class SFYG_TRON2AFlatPPORunnerCfg(SF_TRON2AFlatPPORunnerCfg):
+    experiment_name = "sfyg_tron_2a_flat"
+
+
+#-----------------------------------------------------------------
+@configclass
+class WFYG_TRON2AFlatPPORunnerCfg(WF_TRON2AFlatPPORunnerCfg):
+    experiment_name = "wfyg_tron_2a_flat"
