@@ -14,6 +14,24 @@
 
 ## 资产要求
 
+本分支把 `limx-tron2/robot-description` 作为 `robot_description` submodule 接入，并固定到：
+
+```text
+6ef32a33b9405e84a6551bc19d380f6747ea9611
+```
+
+云端拉取本分支后，先初始化资产 submodule：
+
+```bash
+git submodule update --init --recursive robot_description
+```
+
+如果云端是第一次克隆仓库，也可以直接递归克隆：
+
+```bash
+git clone --recursive git@github.com:MAIKEAESE/tron2YG.git
+```
+
 YG 资产配置会按顺序查找以下路径：
 
 ```text
@@ -36,7 +54,7 @@ tron2_rl_lab/
         usd/robot.usd
 ```
 
-如果资产来自 `limx-tron2/robot-description`，需要同时确认 meshes/configuration 等 USD 引用的相对文件也完整存在，不能只复制顶层 `robot.usd`。
+需要确认 meshes/configuration 等 USD 引用的相对文件也完整存在，不能只复制顶层 `robot.usd`。使用 submodule 初始化时会自动保留完整目录。
 
 ## 云端拉取分支
 
@@ -44,6 +62,7 @@ tron2_rl_lab/
 git fetch maike
 git checkout feature/yg-flat-registration
 git pull
+git submodule update --init --recursive robot_description
 ```
 
 如果云端还没有 `maike` 远端：
@@ -52,6 +71,7 @@ git pull
 git remote add maike git@github.com:MAIKEAESE/tron2YG.git
 git fetch maike
 git checkout -b feature/yg-flat-registration maike/feature/yg-flat-registration
+git submodule update --init --recursive robot_description
 ```
 
 ## 第一阶段：只验证 Play
