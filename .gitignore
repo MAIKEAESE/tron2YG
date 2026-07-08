@@ -36,3 +36,11 @@ _build
 .lastformat
 
 .vscode
+
+# submission/runtime artifacts
+submit.py
+submit_sfyg/
+logs/
+*.pt
+*.onnx
+*.mp4
