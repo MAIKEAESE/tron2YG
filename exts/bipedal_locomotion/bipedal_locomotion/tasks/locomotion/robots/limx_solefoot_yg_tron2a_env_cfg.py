@@ -62,6 +62,16 @@ def _use_tron_camp_training_terrain(self):
     self.scene.robot.init_state.pos = (0.0, 0.0, TRON2_SPAWN_Z)
 
 
+def _use_forward_walking_commands(self):
+    self.commands.base_velocity.heading_command = False
+    self.commands.base_velocity.rel_standing_envs = 0.0
+    self.commands.base_velocity.rel_heading_envs = 0.0
+    self.commands.base_velocity.ranges.lin_vel_x = (0.45, 0.90)
+    self.commands.base_velocity.ranges.lin_vel_y = (-0.05, 0.05)
+    self.commands.base_velocity.ranges.ang_vel_z = (-0.15, 0.15)
+    self.commands.base_velocity.ranges.heading = (0.0, 0.0)
+
+
 @configclass
 class SFYG_TRON2A_BaseEnvCfg(SF_TRON2A_BaseEnvCfg):
     def __post_init__(self):
@@ -108,3 +118,18 @@ class SFYG_TRON2A_BlindTronCampEnvCfg_PLAY(SFYG_TRON2A_BlindFlatEnvCfg_PLAY):
     def __post_init__(self):
         super().__post_init__()
         _use_tron_camp_training_terrain(self)
+
+
+@configclass
+class SFYG_TRON2A_BlindTronCampForwardEnvCfg(SFYG_TRON2A_BlindTronCampEnvCfg):
+    def __post_init__(self):
+        super().__post_init__()
+        _use_forward_walking_commands(self)
+
+
+@configclass
+class SFYG_TRON2A_BlindTronCampForwardEnvCfg_PLAY(SFYG_TRON2A_BlindTronCampEnvCfg_PLAY):
+    def __post_init__(self):
+        super().__post_init__()
+        _use_forward_walking_commands(self)
+        self.scene.num_envs = 1
