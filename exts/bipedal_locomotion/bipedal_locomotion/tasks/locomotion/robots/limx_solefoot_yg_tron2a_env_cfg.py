@@ -1,7 +1,9 @@
+from isaaclab.managers import RewardTermCfg as RewTerm
 from isaaclab.managers import SceneEntityCfg
 from isaaclab.utils import configclass
 
 from bipedal_locomotion.assets.config.solefoot_yg_tron2a_cfg import SOLEFOOT_YG_TRON2A_CFG
+from bipedal_locomotion.tasks.locomotion import mdp
 from bipedal_locomotion.tasks.locomotion.cfg.SF_TRON2A.terrains_cfg import (
     BLIND_FLAT_TERRAINS_CFG,
     BLIND_FLAT_TERRAINS_PLAY_CFG,
@@ -66,11 +68,13 @@ def _use_forward_walking_commands(self):
     self.commands.base_velocity.heading_command = True
     self.commands.base_velocity.rel_standing_envs = 0.0
     self.commands.base_velocity.rel_heading_envs = 1.0
-    self.commands.base_velocity.ranges.lin_vel_x = (0.60, 0.95)
+    self.commands.base_velocity.ranges.lin_vel_x = (0.45, 0.80)
     self.commands.base_velocity.ranges.lin_vel_y = (0.0, 0.0)
     self.commands.base_velocity.ranges.ang_vel_z = (0.0, 0.0)
     self.commands.base_velocity.ranges.heading = (0.0, 0.0)
-    self.commands.gait_command.ranges.frequencies = (1.0, 1.35)
+    self.commands.gait_command.ranges.frequencies = (0.75, 1.05)
+    self.commands.gait_command.ranges.durations = (0.58, 0.68)
+    self.commands.gait_command.ranges.swing_height = (0.06, 0.11)
 
 
 def _use_forward_walking_rewards(self):
@@ -80,10 +84,22 @@ def _use_forward_walking_rewards(self):
     self.rewards.keep_balance.weight = 0.3
     self.rewards.base_height_exp.weight = 0.4
     self.rewards.flat_orientation_l2.weight = -1.5
-    self.rewards.gait_reward.weight = 0.8
+    self.rewards.gait_reward.weight = 0.45
     self.rewards.feet_distance.weight = 0.7
-    self.rewards.feet_air_time.weight = 0.10
+    self.rewards.feet_air_time.weight = 0.0
     self.rewards.feet_slide.weight = -0.08
+    self.rewards.action_rate_l2.weight = -0.02
+    self.rewards.action_smoothness.weight = -0.0008
+    self.rewards.same_feet_x_position = RewTerm(
+        func=mdp.same_feet_x_position,
+        weight=-0.20,
+        params={"asset_cfg": SceneEntityCfg("robot", body_names="ankle_pitch_.*")},
+    )
+    self.rewards.centerline_y = RewTerm(
+        func=mdp.track_centerline_y,
+        weight=1.0,
+        params={"std": 0.6},
+    )
 
 
 def _use_track_aligned_resets(self):

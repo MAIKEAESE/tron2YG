@@ -247,6 +247,22 @@ def base_projection_at_feet_midpoint(
     return torch.exp(-error_sq / std**2)
 
 
+def track_centerline_y(
+    env: ManagerBasedRLEnv,
+    std: float,
+    asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+) -> torch.Tensor:
+    """Reward staying near the terrain cell centerline in world Y."""
+    asset: Articulation = env.scene[asset_cfg.name]
+    env_origins = getattr(env.scene, "env_origins", None)
+    if env_origins is None:
+        target_y = torch.zeros(env.num_envs, device=env.device)
+    else:
+        target_y = env_origins[:, 1]
+    lateral_error = asset.data.root_pos_w[:, 1] - target_y
+    return torch.exp(-torch.square(lateral_error) / std**2)
+
+
 class FeetSlidePenaltyWrapper:
     """A wrapper class for calculating feet slide penalty."""
     def __init__(self):
