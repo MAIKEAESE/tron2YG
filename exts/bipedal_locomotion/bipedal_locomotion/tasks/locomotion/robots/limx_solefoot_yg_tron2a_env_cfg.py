@@ -63,24 +63,45 @@ def _use_tron_camp_training_terrain(self):
 
 
 def _use_forward_walking_commands(self):
-    self.commands.base_velocity.heading_command = False
+    self.commands.base_velocity.heading_command = True
     self.commands.base_velocity.rel_standing_envs = 0.0
-    self.commands.base_velocity.rel_heading_envs = 0.0
-    self.commands.base_velocity.ranges.lin_vel_x = (0.75, 1.10)
-    self.commands.base_velocity.ranges.lin_vel_y = (-0.05, 0.05)
-    self.commands.base_velocity.ranges.ang_vel_z = (-0.10, 0.10)
+    self.commands.base_velocity.rel_heading_envs = 1.0
+    self.commands.base_velocity.ranges.lin_vel_x = (0.60, 0.95)
+    self.commands.base_velocity.ranges.lin_vel_y = (0.0, 0.0)
+    self.commands.base_velocity.ranges.ang_vel_z = (0.0, 0.0)
     self.commands.base_velocity.ranges.heading = (0.0, 0.0)
     self.commands.gait_command.ranges.frequencies = (1.0, 1.35)
 
 
 def _use_forward_walking_rewards(self):
     self.rewards.track_lin_vel_x_exp.weight = 4.0
-    self.rewards.track_lin_vel_y_exp.weight = 0.3
-    self.rewards.track_ang_vel_z_exp.weight = 0.3
+    self.rewards.track_lin_vel_y_exp.weight = 1.5
+    self.rewards.track_ang_vel_z_exp.weight = 1.5
     self.rewards.keep_balance.weight = 0.3
     self.rewards.base_height_exp.weight = 0.4
+    self.rewards.flat_orientation_l2.weight = -1.5
     self.rewards.gait_reward.weight = 0.8
+    self.rewards.feet_distance.weight = 0.7
     self.rewards.feet_air_time.weight = 0.10
+    self.rewards.feet_slide.weight = -0.08
+
+
+def _use_track_aligned_resets(self):
+    if self.events.reset_robot_base is None:
+        return
+    self.events.reset_robot_base.params["pose_range"] = {
+        "x": (-0.1, 0.1),
+        "y": (-0.1, 0.1),
+        "yaw": (-0.05, 0.05),
+    }
+    self.events.reset_robot_base.params["velocity_range"] = {
+        "x": (-0.1, 0.1),
+        "y": (-0.1, 0.1),
+        "z": (-0.1, 0.1),
+        "roll": (-0.1, 0.1),
+        "pitch": (-0.1, 0.1),
+        "yaw": (-0.1, 0.1),
+    }
 
 
 @configclass
@@ -137,6 +158,7 @@ class SFYG_TRON2A_BlindTronCampForwardEnvCfg(SFYG_TRON2A_BlindTronCampEnvCfg):
         super().__post_init__()
         _use_forward_walking_commands(self)
         _use_forward_walking_rewards(self)
+        _use_track_aligned_resets(self)
 
 
 @configclass
@@ -145,4 +167,5 @@ class SFYG_TRON2A_BlindTronCampForwardEnvCfg_PLAY(SFYG_TRON2A_BlindTronCampEnvCf
         super().__post_init__()
         _use_forward_walking_commands(self)
         _use_forward_walking_rewards(self)
+        _use_track_aligned_resets(self)
         self.scene.num_envs = 1
