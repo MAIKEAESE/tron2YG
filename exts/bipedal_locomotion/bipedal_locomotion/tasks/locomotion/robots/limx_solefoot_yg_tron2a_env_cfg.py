@@ -120,6 +120,47 @@ def _use_track_aligned_resets(self):
     }
 
 
+def _use_gait_stabilization_commands(self):
+    self.commands.base_velocity.heading_command = True
+    self.commands.base_velocity.rel_standing_envs = 0.0
+    self.commands.base_velocity.rel_heading_envs = 1.0
+    self.commands.base_velocity.ranges.lin_vel_x = (0.25, 0.55)
+    self.commands.base_velocity.ranges.lin_vel_y = (0.0, 0.0)
+    self.commands.base_velocity.ranges.ang_vel_z = (0.0, 0.0)
+    self.commands.base_velocity.ranges.heading = (0.0, 0.0)
+    self.commands.gait_command.ranges.frequencies = (0.65, 0.90)
+    self.commands.gait_command.ranges.offsets = (0.5, 0.5)
+    self.commands.gait_command.ranges.durations = (0.62, 0.72)
+    self.commands.gait_command.ranges.swing_height = (0.04, 0.08)
+
+
+def _use_gait_stabilization_rewards(self):
+    self.rewards.track_lin_vel_x_exp.weight = 2.0
+    self.rewards.track_lin_vel_y_exp.weight = 2.0
+    self.rewards.track_ang_vel_z_exp.weight = 2.0
+    self.rewards.keep_balance.weight = 0.6
+    self.rewards.base_height_exp.weight = 0.6
+    self.rewards.flat_orientation_l2.weight = -2.0
+    self.rewards.gait_reward.weight = 0.35
+    self.rewards.feet_distance.weight = 1.0
+    self.rewards.feet_air_time.weight = 0.0
+    self.rewards.feet_slide.weight = -0.12
+    self.rewards.feet_ang_slide_penalty.weight = -0.15
+    self.rewards.action_rate_l2.weight = -0.03
+    self.rewards.action_smoothness.weight = -0.0012
+    self.rewards.torques_smoothness_penalty.weight = -3.0e-7
+    self.rewards.same_feet_x_position = RewTerm(
+        func=mdp.same_feet_x_position,
+        weight=-0.35,
+        params={"asset_cfg": SceneEntityCfg("robot", body_names="ankle_pitch_.*")},
+    )
+    self.rewards.centerline_y = RewTerm(
+        func=mdp.track_centerline_y,
+        weight=1.5,
+        params={"std": 0.5},
+    )
+
+
 @configclass
 class SFYG_TRON2A_BaseEnvCfg(SF_TRON2A_BaseEnvCfg):
     def __post_init__(self):
@@ -183,5 +224,24 @@ class SFYG_TRON2A_BlindTronCampForwardEnvCfg_PLAY(SFYG_TRON2A_BlindTronCampEnvCf
         super().__post_init__()
         _use_forward_walking_commands(self)
         _use_forward_walking_rewards(self)
+        _use_track_aligned_resets(self)
+        self.scene.num_envs = 1
+
+
+@configclass
+class SFYG_TRON2A_BlindGaitEnvCfg(SFYG_TRON2A_BlindFlatEnvCfg):
+    def __post_init__(self):
+        super().__post_init__()
+        _use_gait_stabilization_commands(self)
+        _use_gait_stabilization_rewards(self)
+        _use_track_aligned_resets(self)
+
+
+@configclass
+class SFYG_TRON2A_BlindGaitEnvCfg_PLAY(SFYG_TRON2A_BlindFlatEnvCfg_PLAY):
+    def __post_init__(self):
+        super().__post_init__()
+        _use_gait_stabilization_commands(self)
+        _use_gait_stabilization_rewards(self)
         _use_track_aligned_resets(self)
         self.scene.num_envs = 1
