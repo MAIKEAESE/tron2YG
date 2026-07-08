@@ -24,6 +24,11 @@ parser.add_argument("--num_envs", type=int, default=None, help="Number of enviro
 parser.add_argument("--task", type=str, default=None, help="Name of the task.")
 parser.add_argument("--seed", type=int, default=None, help="Seed used for the environment")
 parser.add_argument("--checkpoint_path", type=str, default=None, help="Relative path to checkpoint file.")
+parser.add_argument("--follow_camera", action="store_true", default=False, help="Follow env-0 robot while recording.")
+parser.add_argument("--camera_distance", type=float, default=5.0, help="Follow camera distance behind the robot.")
+parser.add_argument("--camera_height", type=float, default=2.6, help="Follow camera height above the robot.")
+parser.add_argument("--camera_side", type=float, default=0.8, help="Follow camera lateral offset.")
+parser.add_argument("--camera_lookahead", type=float, default=2.5, help="Follow camera target distance ahead.")
 
 # append RSL-RL cli arguments
 cli_args.add_rsl_rl_args(parser)
@@ -54,6 +59,29 @@ from isaaclab_rl.rsl_rl import RslRlOnPolicyRunnerCfg, RslRlVecEnvWrapper
 # Import extensions to set up environment tasks
 import bipedal_locomotion  # noqa: F401
 from bipedal_locomotion.utils.wrappers.rsl_rl import RslRlPpoAlgorithmMlpCfg, export_mlp_as_onnx, export_policy_as_jit
+
+
+def update_follow_camera(env):
+    """Keep the render camera behind env-0 and looking ahead along the track."""
+    if not args_cli.follow_camera:
+        return
+
+    base_env = env.unwrapped
+    robot = base_env.scene["robot"]
+    root_pos = robot.data.root_pos_w[0].detach().cpu()
+    root_x, root_y, root_z = (float(root_pos[0]), float(root_pos[1]), float(root_pos[2]))
+
+    eye = [
+        root_x - args_cli.camera_distance,
+        root_y + args_cli.camera_side,
+        root_z + args_cli.camera_height,
+    ]
+    target = [
+        root_x + args_cli.camera_lookahead,
+        root_y,
+        root_z + 0.7,
+    ]
+    base_env.sim.set_camera_view(eye=eye, target=target)
 
 
 def main():
@@ -130,6 +158,7 @@ def main():
     obs_history = obs_dict.get("obsHistory")
     obs_history = obs_history.flatten(start_dim=1)
     commands = obs_dict.get("commands") 
+    update_follow_camera(env)
  
     # simulate environment
     while simulation_app.is_running():
@@ -144,6 +173,7 @@ def main():
             obs_history = obs_dict.get("obsHistory")
             obs_history = obs_history.flatten(start_dim=1)
             commands = obs_dict.get("commands") 
+            update_follow_camera(env)
 
     # close the simulator
     env.close()
