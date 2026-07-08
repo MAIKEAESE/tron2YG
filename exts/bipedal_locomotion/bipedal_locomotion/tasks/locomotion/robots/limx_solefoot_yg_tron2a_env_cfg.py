@@ -6,6 +6,10 @@ from bipedal_locomotion.tasks.locomotion.cfg.SF_TRON2A.terrains_cfg import (
     BLIND_FLAT_TERRAINS_CFG,
     BLIND_FLAT_TERRAINS_PLAY_CFG,
 )
+from bipedal_locomotion.tasks.locomotion.cfg.SF_TRON2A.training_terrain.tron_camp_training_terrain import (
+    TRON2_SPAWN_Z,
+    TRON_CAMP_TRAINING_TERRAIN_CFG,
+)
 from bipedal_locomotion.tasks.locomotion.robots.limx_solefoot_tron2a_env_cfg import (
     SF_TRON2A_BaseEnvCfg,
     SF_TRON2A_BaseEnvCfg_PLAY,
@@ -53,6 +57,11 @@ def _use_generated_flat_terrain(self, terrain_generator):
     self.scene.terrain.max_init_terrain_level = None
 
 
+def _use_tron_camp_training_terrain(self):
+    self.scene.terrain = TRON_CAMP_TRAINING_TERRAIN_CFG
+    self.scene.robot.init_state.pos = (0.0, 0.0, TRON2_SPAWN_Z)
+
+
 @configclass
 class SFYG_TRON2A_BaseEnvCfg(SF_TRON2A_BaseEnvCfg):
     def __post_init__(self):
@@ -85,3 +94,17 @@ class SFYG_TRON2A_BlindFlatEnvCfg_PLAY(SF_TRON2A_BlindFlatEnvCfg_PLAY):
         _use_generated_flat_terrain(self, BLIND_FLAT_TERRAINS_PLAY_CFG)
         self.scene.robot = SOLEFOOT_YG_TRON2A_CFG.replace(prim_path="{ENV_REGEX_NS}/Robot")
         _exclude_arm_from_events_and_rewards(self)
+
+
+@configclass
+class SFYG_TRON2A_BlindTronCampEnvCfg(SFYG_TRON2A_BlindFlatEnvCfg):
+    def __post_init__(self):
+        super().__post_init__()
+        _use_tron_camp_training_terrain(self)
+
+
+@configclass
+class SFYG_TRON2A_BlindTronCampEnvCfg_PLAY(SFYG_TRON2A_BlindFlatEnvCfg_PLAY):
+    def __post_init__(self):
+        super().__post_init__()
+        _use_tron_camp_training_terrain(self)

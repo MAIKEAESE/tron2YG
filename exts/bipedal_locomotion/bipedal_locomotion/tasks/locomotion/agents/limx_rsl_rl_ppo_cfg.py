@@ -89,5 +89,11 @@ class SFYG_TRON2AFlatPPORunnerCfg(SF_TRON2AFlatPPORunnerCfg):
 
 #-----------------------------------------------------------------
 @configclass
+class SFYG_TRON2ATronCampPPORunnerCfg(SFYG_TRON2AFlatPPORunnerCfg):
+    experiment_name = "sfyg_tron_2a_troncamp"
+
+
+#-----------------------------------------------------------------
+@configclass
 class WFYG_TRON2AFlatPPORunnerCfg(WF_TRON2AFlatPPORunnerCfg):
     experiment_name = "wfyg_tron_2a_flat"
