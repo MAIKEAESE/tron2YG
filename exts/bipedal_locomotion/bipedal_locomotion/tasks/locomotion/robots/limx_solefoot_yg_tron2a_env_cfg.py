@@ -157,7 +157,7 @@ def _use_gait_stabilization_rewards(self):
     self.rewards.torques_smoothness_penalty.weight = -3.0e-7
     self.rewards.same_feet_x_position = RewTerm(
         func=mdp.same_feet_x_position,
-        weight=-0.02,
+        weight=-0.005,
         params={"asset_cfg": SceneEntityCfg("robot", body_names="ankle_pitch_.*")},
     )
     self.rewards.centerline_y = RewTerm(
@@ -192,21 +192,30 @@ def _use_gait_stabilization_rewards(self):
     )
     self.rewards.double_stance_feet_x_alignment = RewTerm(
         func=mdp.double_stance_feet_x_alignment_reward,
-        weight=0.6,
+        weight=0.15,
         params={
             "sensor_cfg": SceneEntityCfg("contact_forces", body_names="ankle_pitch_.*"),
             "asset_cfg": SceneEntityCfg("robot", body_names="ankle_pitch_.*"),
-            "std": 0.06,
+            "std": 0.10,
         },
     )
     self.rewards.single_stance_feet_x_separation = RewTerm(
         func=mdp.single_stance_feet_x_separation_reward,
-        weight=0.35,
+        weight=0.05,
         params={
             "sensor_cfg": SceneEntityCfg("contact_forces", body_names="ankle_pitch_.*"),
             "asset_cfg": SceneEntityCfg("robot", body_names="ankle_pitch_.*"),
             "target_distance": 0.16,
             "std": 0.06,
+        },
+    )
+    self.rewards.balanced_feet_x_symmetry = RewTerm(
+        func=mdp.balanced_feet_x_symmetry_reward,
+        weight=0.35,
+        params={
+            "asset_cfg": SceneEntityCfg("robot", body_names="ankle_pitch_.*"),
+            "std": 0.16,
+            "max_tilt": 0.35,
         },
     )
 

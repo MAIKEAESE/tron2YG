@@ -373,6 +373,28 @@ def single_stance_feet_x_separation_reward(
     return torch.where(single_stance, reward, torch.zeros_like(reward))
 
 
+def balanced_feet_x_symmetry_reward(
+    env: ManagerBasedRLEnv,
+    asset_cfg: SceneEntityCfg,
+    std: float = 0.16,
+    max_tilt: float = 0.35,
+) -> torch.Tensor:
+    """Reward loose fore-aft foot symmetry only while the base is reasonably balanced."""
+    asset: RigidObject | Articulation = env.scene[asset_cfg.name]
+    feet_pos_w = asset.data.body_link_pos_w[:, asset_cfg.body_ids]
+    base_quat = asset.data.root_link_quat_w.unsqueeze(1).expand(-1, 2, -1)
+    base_pos = asset.data.root_link_state_w[:, :3].unsqueeze(1).expand(-1, 2, -1)
+    feet_pos_b = math_utils.quat_apply_inverse(base_quat, feet_pos_w - base_pos)
+
+    # If the two feet are fore-aft balanced around the body, x_left + x_right stays near zero.
+    symmetry_error = feet_pos_b[:, 0, 0] + feet_pos_b[:, 1, 0]
+    reward = torch.exp(-torch.square(symmetry_error) / std**2)
+
+    projected_gravity = asset.data.projected_gravity_b
+    balanced = torch.norm(projected_gravity[:, :2], dim=1) < max_tilt
+    return torch.where(balanced, reward, torch.zeros_like(reward))
+
+
 class FeetSlidePenaltyWrapper:
     """A wrapper class for calculating feet slide penalty."""
     def __init__(self):
