@@ -21,7 +21,13 @@ parser.add_argument(
 )
 parser.add_argument("--num_envs", type=int, default=1, help="Number of environments to create.")
 parser.add_argument("--foot_body_regex", type=str, default="ankle_pitch_.*", help="Regex used to select foot bodies.")
-parser.add_argument("--step_count", type=int, default=5, help="Number of zero-action steps before inspection.")
+parser.add_argument("--step_count", type=int, default=0, help="Number of zero-action steps before inspection.")
+parser.add_argument(
+    "--random_reset",
+    action="store_true",
+    default=False,
+    help="Keep task reset randomization. By default the script forces a neutral reset.",
+)
 AppLauncher.add_app_launcher_args(parser)
 args_cli = parser.parse_args()
 
@@ -100,6 +106,33 @@ def _print_lr_joint_pairs(robot):
         )
 
 
+def _force_neutral_reset(env_cfg):
+    events = getattr(env_cfg, "events", None)
+    if events is None:
+        return
+
+    reset_robot_base = getattr(events, "reset_robot_base", None)
+    if reset_robot_base is not None:
+        reset_robot_base.params["pose_range"] = {
+            "x": (0.0, 0.0),
+            "y": (0.0, 0.0),
+            "yaw": (0.0, 0.0),
+        }
+        reset_robot_base.params["velocity_range"] = {
+            "x": (0.0, 0.0),
+            "y": (0.0, 0.0),
+            "z": (0.0, 0.0),
+            "roll": (0.0, 0.0),
+            "pitch": (0.0, 0.0),
+            "yaw": (0.0, 0.0),
+        }
+
+    reset_robot_joints = getattr(events, "reset_robot_joints", None)
+    if reset_robot_joints is not None:
+        reset_robot_joints.params["position_range"] = (0.0, 0.0)
+        reset_robot_joints.params["velocity_range"] = (0.0, 0.0)
+
+
 def _print_base_pose(robot):
     root_pos = _tensor_row(robot.data.root_pos_w)
     root_quat = _tensor_row(robot.data.root_quat_w)
@@ -157,6 +190,8 @@ def _print_foot_geometry(robot, foot_body_regex):
 
 def main():
     env_cfg = parse_env_cfg(task_name=args_cli.task, device=args_cli.device, num_envs=args_cli.num_envs)
+    if not args_cli.random_reset:
+        _force_neutral_reset(env_cfg)
     env = gym.make(args_cli.task, cfg=env_cfg)
     env.reset()
 
@@ -176,6 +211,7 @@ def main():
     print(f"device                = {base_env.device}")
     print(f"foot_body_regex       = {args_cli.foot_body_regex}")
     print(f"zero_action_steps     = {args_cli.step_count}")
+    print(f"random_reset          = {args_cli.random_reset}")
 
     _print_names("Robot body names", body_names)
     _print_names("Robot joint names", joint_names)
