@@ -121,7 +121,7 @@ class SFYG_TRON2ATronCampForwardPPORunnerCfg(SFYG_TRON2ATronCampPPORunnerCfg):
 @configclass
 class SFYG_TRON2AGaitPPORunnerCfg(SFYG_TRON2AFlatPPORunnerCfg):
     max_iterations = 5000
-    save_interval = 250
+    save_interval = 100
     experiment_name = "sfyg_tron_2a_gait"
     algorithm = RslRlPpoAlgorithmMlpCfg(
         class_name="PPO",
