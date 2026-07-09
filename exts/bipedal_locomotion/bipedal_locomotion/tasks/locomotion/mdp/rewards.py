@@ -276,6 +276,54 @@ def track_centerline_y(
     return torch.exp(-torch.square(lateral_error) / std**2)
 
 
+def single_stance_reward(
+    env: ManagerBasedRLEnv,
+    sensor_cfg: SceneEntityCfg,
+    threshold: float = 1.0,
+) -> torch.Tensor:
+    """Reward having exactly one foot in contact with the ground."""
+    contact_sensor: ContactSensor = env.scene.sensors[sensor_cfg.name]
+    contacts = (
+        contact_sensor.data.net_forces_w_history[:, :, sensor_cfg.body_ids, :].norm(dim=-1).max(dim=1)[0] > threshold
+    )
+    return (torch.sum(contacts.int(), dim=1) == 1).float()
+
+
+def double_flight_penalty(
+    env: ManagerBasedRLEnv,
+    sensor_cfg: SceneEntityCfg,
+    threshold: float = 1.0,
+) -> torch.Tensor:
+    """Penalize both feet leaving the ground at the same time."""
+    contact_sensor: ContactSensor = env.scene.sensors[sensor_cfg.name]
+    contacts = (
+        contact_sensor.data.net_forces_w_history[:, :, sensor_cfg.body_ids, :].norm(dim=-1).max(dim=1)[0] > threshold
+    )
+    return (torch.sum(contacts.int(), dim=1) == 0).float()
+
+
+def swing_foot_clearance_reward(
+    env: ManagerBasedRLEnv,
+    sensor_cfg: SceneEntityCfg,
+    asset_cfg: SceneEntityCfg,
+    target_height: float = 0.06,
+    std: float = 0.03,
+    threshold: float = 1.0,
+) -> torch.Tensor:
+    """Reward the non-contact foot clearing the stance foot by a modest height."""
+    contact_sensor: ContactSensor = env.scene.sensors[sensor_cfg.name]
+    contacts = (
+        contact_sensor.data.net_forces_w_history[:, :, sensor_cfg.body_ids, :].norm(dim=-1).max(dim=1)[0] > threshold
+    )
+    single_stance = torch.sum(contacts.int(), dim=1) == 1
+
+    asset: RigidObject | Articulation = env.scene[asset_cfg.name]
+    foot_z = asset.data.body_pos_w[:, asset_cfg.body_ids, 2]
+    clearance = torch.max(foot_z, dim=1)[0] - torch.min(foot_z, dim=1)[0]
+    reward = torch.exp(-torch.square(clearance - target_height) / std**2)
+    return torch.where(single_stance, reward, torch.zeros_like(reward))
+
+
 class FeetSlidePenaltyWrapper:
     """A wrapper class for calculating feet slide penalty."""
     def __init__(self):
