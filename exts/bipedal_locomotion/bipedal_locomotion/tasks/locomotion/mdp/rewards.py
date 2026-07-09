@@ -99,6 +99,20 @@ def track_lin_vel_y_yaw_frame_exp(
     return torch.exp(-lin_vel_error / std**2)
 
 
+def heading_alignment_exp(
+    env: ManagerBasedRLEnv,
+    std: float,
+    command_name: str,
+    asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+) -> torch.Tensor:
+    """Reward aligning the robot yaw with the commanded heading."""
+    asset: RigidObject = env.scene[asset_cfg.name]
+    _, _, yaw = math_utils.euler_xyz_from_quat(asset.data.root_quat_w)
+    target_heading = env.command_manager.get_command(command_name)[:, 3]
+    yaw_error = normalize_angle(yaw - target_heading)
+    return torch.exp(-torch.square(yaw_error) / std**2)
+
+
 def joint_powers_l1(
     env: ManagerBasedRLEnv,
     asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
