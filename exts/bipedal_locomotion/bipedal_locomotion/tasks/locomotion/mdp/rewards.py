@@ -65,6 +65,19 @@ def track_lin_vel_x_yaw_frame_exp(
     return torch.exp(-lin_vel_error / std**2)
 
 
+def lin_vel_x_shortfall_penalty(
+    env: ManagerBasedRLEnv,
+    command_name: str,
+    deadband: float = 0.05,
+    asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+) -> torch.Tensor:
+    """Penalize failing to move forward at the commanded x velocity."""
+    asset: RigidObject = env.scene[asset_cfg.name]
+    vel_yaw = quat_apply_inverse(yaw_quat(asset.data.root_quat_w), asset.data.root_lin_vel_w[:, :3])
+    target_vel_x = env.command_manager.get_command(command_name)[:, 0]
+    return torch.clamp(target_vel_x - vel_yaw[:, 0] - deadband, min=0.0)
+
+
 def track_lin_vel_y_yaw_frame_exp(
     env: ManagerBasedRLEnv,
     std: float,
