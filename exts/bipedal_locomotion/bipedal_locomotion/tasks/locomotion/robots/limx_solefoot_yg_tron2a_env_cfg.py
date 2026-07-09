@@ -168,7 +168,7 @@ def _use_gait_stabilization_rewards(self):
     self.rewards.heading_alignment = RewTerm(
         func=mdp.heading_alignment_exp,
         weight=1.0,
-        params={"command_name": "base_velocity", "std": 0.25},
+        params={"target_heading": 0.0, "std": 0.25},
     )
     self.rewards.forward_speed_shortfall = RewTerm(
         func=mdp.lin_vel_x_shortfall_penalty,
