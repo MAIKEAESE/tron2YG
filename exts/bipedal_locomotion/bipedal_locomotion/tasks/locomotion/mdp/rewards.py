@@ -348,6 +348,31 @@ def double_stance_feet_x_alignment_reward(
     return torch.where(double_stance, reward, torch.zeros_like(reward))
 
 
+def single_stance_feet_x_separation_reward(
+    env: ManagerBasedRLEnv,
+    sensor_cfg: SceneEntityCfg,
+    asset_cfg: SceneEntityCfg,
+    target_distance: float = 0.16,
+    std: float = 0.06,
+    threshold: float = 1.0,
+) -> torch.Tensor:
+    """Reward a forward/back foot split during single stance to encourage longer steps."""
+    contact_sensor: ContactSensor = env.scene.sensors[sensor_cfg.name]
+    contacts = (
+        contact_sensor.data.net_forces_w_history[:, :, sensor_cfg.body_ids, :].norm(dim=-1).max(dim=1)[0] > threshold
+    )
+    single_stance = torch.sum(contacts.int(), dim=1) == 1
+
+    asset: RigidObject | Articulation = env.scene[asset_cfg.name]
+    feet_pos_w = asset.data.body_link_pos_w[:, asset_cfg.body_ids]
+    base_quat = asset.data.root_link_quat_w.unsqueeze(1).expand(-1, 2, -1)
+    base_pos = asset.data.root_link_state_w[:, :3].unsqueeze(1).expand(-1, 2, -1)
+    feet_pos_b = math_utils.quat_apply_inverse(base_quat, feet_pos_w - base_pos)
+    feet_x_distance = torch.abs(feet_pos_b[:, 0, 0] - feet_pos_b[:, 1, 0])
+    reward = torch.exp(-torch.square(feet_x_distance - target_distance) / std**2)
+    return torch.where(single_stance, reward, torch.zeros_like(reward))
+
+
 class FeetSlidePenaltyWrapper:
     """A wrapper class for calculating feet slide penalty."""
     def __init__(self):
