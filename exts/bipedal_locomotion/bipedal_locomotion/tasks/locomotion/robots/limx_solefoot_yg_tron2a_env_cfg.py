@@ -347,3 +347,24 @@ class SFYG_TRON2A_BlindGaitEnvCfg_PLAY(SFYG_TRON2A_BlindFlatEnvCfg_PLAY):
         _use_gait_heading_termination(self)
         _use_gait_stabilization_resets(self)
         self.scene.num_envs = 1
+
+
+@configclass
+class SFYG_TRON2A_BlindGaitTronCampEnvCfg(SFYG_TRON2A_BlindTronCampEnvCfg):
+    def __post_init__(self):
+        super().__post_init__()
+        _use_gait_stabilization_commands(self)
+        _use_gait_stabilization_rewards(self)
+        _use_gait_heading_termination(self)
+        _use_gait_stabilization_resets(self)
+
+
+@configclass
+class SFYG_TRON2A_BlindGaitTronCampEnvCfg_PLAY(SFYG_TRON2A_BlindTronCampEnvCfg_PLAY):
+    def __post_init__(self):
+        super().__post_init__()
+        _use_gait_stabilization_commands(self)
+        _use_gait_stabilization_rewards(self)
+        _use_gait_heading_termination(self)
+        _use_gait_stabilization_resets(self)
+        self.scene.num_envs = 1

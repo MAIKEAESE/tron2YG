@@ -173,6 +173,27 @@ gym.register(
 )
 
 
+gym.register(
+    id="Isaac-Limx-SFYG-TRON2A-Blind-Gait-TronCamp-v0",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": limx_solefoot_yg_tron2a_env_cfg.SFYG_TRON2A_BlindGaitTronCampEnvCfg,
+        "rsl_rl_cfg_entry_point": limx_sfyg_tron2a_blind_gait_runner_cfg,
+    },
+)
+
+gym.register(
+    id="Isaac-Limx-SFYG-TRON2A-Blind-Gait-TronCamp-Play-v0",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": limx_solefoot_yg_tron2a_env_cfg.SFYG_TRON2A_BlindGaitTronCampEnvCfg_PLAY,
+        "rsl_rl_cfg_entry_point": limx_sfyg_tron2a_blind_gait_runner_cfg,
+    },
+)
+
+
 ######################################
 # WFYG_TRON2A Blind Flat Environment
 ######################################
