@@ -178,6 +178,19 @@ def _use_gait_stabilization_rewards(self):
         weight=2.0,
         params={"target_heading": 0.0, "std": 0.18},
     )
+    self.rewards.heading_error_abs = RewTerm(
+        func=mdp.heading_error_abs,
+        weight=-2.0,
+        params={"target_heading": 0.0},
+    )
+    self.rewards.world_lin_vel_y_abs = RewTerm(
+        func=mdp.world_lin_vel_y_abs,
+        weight=-1.5,
+    )
+    self.rewards.world_pos_y_abs = RewTerm(
+        func=mdp.world_pos_y_abs,
+        weight=-0.6,
+    )
     self.rewards.forward_speed_shortfall = RewTerm(
         func=mdp.lin_vel_x_shortfall_penalty,
         weight=-4.0,

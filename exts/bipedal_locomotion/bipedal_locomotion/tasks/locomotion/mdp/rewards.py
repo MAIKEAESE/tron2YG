@@ -112,6 +112,40 @@ def heading_alignment_exp(
     return torch.exp(-torch.square(yaw_error) / std**2)
 
 
+def heading_error_abs(
+    env: ManagerBasedRLEnv,
+    target_heading: float = 0.0,
+    asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+) -> torch.Tensor:
+    """Penalize absolute yaw error from the target heading."""
+    asset: RigidObject = env.scene[asset_cfg.name]
+    _, _, yaw = math_utils.euler_xyz_from_quat(asset.data.root_quat_w)
+    return torch.abs(normalize_angle(yaw - target_heading))
+
+
+def world_lin_vel_y_abs(
+    env: ManagerBasedRLEnv,
+    asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+) -> torch.Tensor:
+    """Penalize lateral drift velocity in the world frame."""
+    asset: RigidObject = env.scene[asset_cfg.name]
+    return torch.abs(asset.data.root_lin_vel_w[:, 1])
+
+
+def world_pos_y_abs(
+    env: ManagerBasedRLEnv,
+    asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+) -> torch.Tensor:
+    """Penalize lateral displacement from the terrain cell centerline in the world frame."""
+    asset: RigidObject = env.scene[asset_cfg.name]
+    env_origins = getattr(env.scene, "env_origins", None)
+    if env_origins is None:
+        target_y = torch.zeros(env.num_envs, device=env.device)
+    else:
+        target_y = env_origins[:, 1]
+    return torch.abs(asset.data.root_pos_w[:, 1] - target_y)
+
+
 def joint_powers_l1(
     env: ManagerBasedRLEnv,
     asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
