@@ -3,6 +3,8 @@
 """Launch Isaac Sim Simulator first."""
 
 import argparse
+import csv
+import math
 import os
 import sys
 
@@ -29,6 +31,9 @@ parser.add_argument("--camera_distance", type=float, default=5.0, help="Follow c
 parser.add_argument("--camera_height", type=float, default=2.6, help="Follow camera height above the robot.")
 parser.add_argument("--camera_side", type=float, default=0.8, help="Follow camera lateral offset.")
 parser.add_argument("--camera_lookahead", type=float, default=2.5, help="Follow camera target distance ahead.")
+parser.add_argument("--pose_log", action="store_true", default=False, help="Write env-0 pose diagnostics to CSV.")
+parser.add_argument("--pose_log_interval", type=int, default=10, help="Pose log interval in simulation steps.")
+parser.add_argument("--pose_log_path", type=str, default=None, help="Optional CSV path for pose diagnostics.")
 
 # append RSL-RL cli arguments
 cli_args.add_rsl_rl_args(parser)
@@ -53,6 +58,7 @@ import torch
 from rsl_rl.runner import OnPolicyRunner
 
 from isaaclab.envs import ManagerBasedRLEnvCfg,DirectMARLEnv, multi_agent_to_single_agent
+import isaaclab.utils.math as math_utils
 from isaaclab.utils.dict import print_dict
 from isaaclab_tasks.utils import get_checkpoint_path, parse_env_cfg
 from isaaclab_rl.rsl_rl import RslRlOnPolicyRunnerCfg, RslRlVecEnvWrapper
@@ -82,6 +88,165 @@ def update_follow_camera(env):
         root_z + 0.7,
     ]
     base_env.sim.set_camera_view(eye=eye, target=target)
+
+
+def _angle_diff_rad(angle, reference):
+    return math.atan2(math.sin(angle - reference), math.cos(angle - reference))
+
+
+def _find_body_id(body_names, candidates):
+    for candidate in candidates:
+        for idx, name in enumerate(body_names):
+            if name == candidate:
+                return idx, name
+    for candidate in candidates:
+        for idx, name in enumerate(body_names):
+            if candidate in name:
+                return idx, name
+    return None, None
+
+
+class PoseCsvLogger:
+    """Write env-0 heading, hip, and foot diagnostics for video review."""
+
+    def __init__(self, env, log_dir):
+        self.env = env
+        self.step = 0
+        self.interval = max(args_cli.pose_log_interval, 1)
+        self.path = args_cli.pose_log_path or os.path.join(log_dir, "pose_metrics.csv")
+        self.file = open(self.path, "w", newline="", encoding="utf-8")
+        self.writer = csv.DictWriter(
+            self.file,
+            fieldnames=[
+                "step",
+                "root_x",
+                "root_y",
+                "root_z",
+                "base_yaw_deg",
+                "base_forward_x",
+                "base_forward_y",
+                "vel_x",
+                "vel_y",
+                "speed_xy",
+                "velocity_yaw_deg",
+                "velocity_minus_base_deg",
+                "target_heading_error_deg",
+                "hip_line_yaw_deg",
+                "hip_forward_yaw_deg",
+                "hip_forward_minus_base_deg",
+                "left_foot_x_b",
+                "left_foot_y_b",
+                "right_foot_x_b",
+                "right_foot_y_b",
+                "foot_x_diff_b",
+                "foot_y_diff_b",
+                "foot_x_sum_b",
+                "foot_y_sum_b",
+            ],
+        )
+        self.writer.writeheader()
+        self._resolve_body_ids()
+        print(f"[INFO] Writing pose diagnostics to: {self.path}")
+
+    def _resolve_body_ids(self):
+        robot = self.env.unwrapped.scene["robot"]
+        body_names = list(getattr(robot, "body_names", []))
+        self.left_hip_id, self.left_hip_name = _find_body_id(
+            body_names,
+            ["proximal_pitch_L_Link", "proximal_roll_L_Link", "proximal_yaw_L_Link"],
+        )
+        self.right_hip_id, self.right_hip_name = _find_body_id(
+            body_names,
+            ["proximal_pitch_R_Link", "proximal_roll_R_Link", "proximal_yaw_R_Link"],
+        )
+        self.left_foot_id, self.left_foot_name = _find_body_id(body_names, ["ankle_pitch_L_Link"])
+        self.right_foot_id, self.right_foot_name = _find_body_id(body_names, ["ankle_pitch_R_Link"])
+        missing = [
+            name
+            for body_id, name in [
+                (self.left_hip_id, "left hip"),
+                (self.right_hip_id, "right hip"),
+                (self.left_foot_id, "left foot"),
+                (self.right_foot_id, "right foot"),
+            ]
+            if body_id is None
+        ]
+        if missing:
+            raise RuntimeError(f"Pose log could not resolve body ids for: {', '.join(missing)}")
+        print(
+            "[INFO] Pose log bodies: "
+            f"hip=({self.left_hip_name}, {self.right_hip_name}), "
+            f"foot=({self.left_foot_name}, {self.right_foot_name})"
+        )
+
+    def record(self):
+        self.step += 1
+        if self.step % self.interval != 0:
+            return
+
+        robot = self.env.unwrapped.scene["robot"]
+        root_pos = robot.data.root_pos_w[0].detach()
+        root_vel = robot.data.root_lin_vel_w[0].detach()
+        root_quat = robot.data.root_quat_w[0:1].detach()
+        _, _, yaw = math_utils.euler_xyz_from_quat(root_quat)
+        base_yaw = float(yaw[0].detach().cpu())
+        forward = math_utils.quat_apply(
+            root_quat, torch.tensor([[1.0, 0.0, 0.0]], device=robot.device)
+        )[0]
+
+        vel_x = float(root_vel[0].detach().cpu())
+        vel_y = float(root_vel[1].detach().cpu())
+        speed_xy = math.hypot(vel_x, vel_y)
+        velocity_yaw = math.atan2(vel_y, vel_x) if speed_xy > 1e-4 else float("nan")
+
+        body_pos = robot.data.body_link_pos_w[0].detach()
+        left_hip = body_pos[self.left_hip_id]
+        right_hip = body_pos[self.right_hip_id]
+        hip_line = left_hip - right_hip
+        hip_line_yaw = math.atan2(float(hip_line[1].cpu()), float(hip_line[0].cpu()))
+        hip_forward_yaw = hip_line_yaw - math.pi / 2.0
+
+        foot_ids = torch.tensor([self.left_foot_id, self.right_foot_id], device=robot.device, dtype=torch.long)
+        base_quat = robot.data.root_link_quat_w[:, None, :].expand(-1, 2, -1)
+        base_pos = robot.data.root_link_state_w[:, None, :3].expand(-1, 2, -1)
+        feet_pos_b = math_utils.quat_apply_inverse(base_quat, robot.data.body_link_pos_w[:, foot_ids] - base_pos)[0]
+        left_foot_b = feet_pos_b[0].detach().cpu()
+        right_foot_b = feet_pos_b[1].detach().cpu()
+
+        self.writer.writerow(
+            {
+                "step": self.step,
+                "root_x": float(root_pos[0].cpu()),
+                "root_y": float(root_pos[1].cpu()),
+                "root_z": float(root_pos[2].cpu()),
+                "base_yaw_deg": math.degrees(base_yaw),
+                "base_forward_x": float(forward[0].cpu()),
+                "base_forward_y": float(forward[1].cpu()),
+                "vel_x": vel_x,
+                "vel_y": vel_y,
+                "speed_xy": speed_xy,
+                "velocity_yaw_deg": math.degrees(velocity_yaw) if not math.isnan(velocity_yaw) else "",
+                "velocity_minus_base_deg": math.degrees(_angle_diff_rad(velocity_yaw, base_yaw))
+                if not math.isnan(velocity_yaw)
+                else "",
+                "target_heading_error_deg": math.degrees(_angle_diff_rad(base_yaw, 0.0)),
+                "hip_line_yaw_deg": math.degrees(hip_line_yaw),
+                "hip_forward_yaw_deg": math.degrees(hip_forward_yaw),
+                "hip_forward_minus_base_deg": math.degrees(_angle_diff_rad(hip_forward_yaw, base_yaw)),
+                "left_foot_x_b": float(left_foot_b[0]),
+                "left_foot_y_b": float(left_foot_b[1]),
+                "right_foot_x_b": float(right_foot_b[0]),
+                "right_foot_y_b": float(right_foot_b[1]),
+                "foot_x_diff_b": float(left_foot_b[0] - right_foot_b[0]),
+                "foot_y_diff_b": float(left_foot_b[1] - right_foot_b[1]),
+                "foot_x_sum_b": float(left_foot_b[0] + right_foot_b[0]),
+                "foot_y_sum_b": float(left_foot_b[1] + right_foot_b[1]),
+            }
+        )
+        self.file.flush()
+
+    def close(self):
+        self.file.close()
 
 
 def main():
@@ -158,25 +323,31 @@ def main():
     obs_history = obs_dict.get("obsHistory")
     obs_history = obs_history.flatten(start_dim=1)
     commands = obs_dict.get("commands") 
+    pose_logger = PoseCsvLogger(env, log_dir) if args_cli.pose_log else None
     update_follow_camera(env)
  
     # simulate environment
-    while simulation_app.is_running():
-        # run everything in inference mode
-        with torch.inference_mode():
-            # agent stepping
-            est = encoder(obs_history)
-            actions = policy(torch.cat((est, obs, commands), dim=-1).detach())
-            # env stepping
-            obs_dict, _, _, infos = env.step(actions)
-            obs = obs_dict["policy"]
-            obs_history = obs_dict.get("obsHistory")
-            obs_history = obs_history.flatten(start_dim=1)
-            commands = obs_dict.get("commands") 
-            update_follow_camera(env)
-
-    # close the simulator
-    env.close()
+    try:
+        while simulation_app.is_running():
+            # run everything in inference mode
+            with torch.inference_mode():
+                # agent stepping
+                est = encoder(obs_history)
+                actions = policy(torch.cat((est, obs, commands), dim=-1).detach())
+                # env stepping
+                obs_dict, _, _, infos = env.step(actions)
+                obs = obs_dict["policy"]
+                obs_history = obs_dict.get("obsHistory")
+                obs_history = obs_history.flatten(start_dim=1)
+                commands = obs_dict.get("commands") 
+                update_follow_camera(env)
+                if pose_logger is not None:
+                    pose_logger.record()
+    finally:
+        if pose_logger is not None:
+            pose_logger.close()
+        # close the simulator
+        env.close()
 
 
 if __name__ == "__main__":
