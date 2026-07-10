@@ -141,8 +141,8 @@ def _use_gait_stabilization_commands(self):
     self.commands.base_velocity.ranges.heading = (0.0, 0.0)
     self.commands.gait_command.ranges.frequencies = (0.65, 0.90)
     self.commands.gait_command.ranges.offsets = (0.5, 0.5)
-    self.commands.gait_command.ranges.durations = (0.50, 0.58)
-    self.commands.gait_command.ranges.swing_height = (0.11, 0.17)
+    self.commands.gait_command.ranges.durations = (0.52, 0.60)
+    self.commands.gait_command.ranges.swing_height = (0.10, 0.15)
 
 
 def _use_gait_stabilization_rewards(self):
@@ -159,17 +159,17 @@ def _use_gait_stabilization_rewards(self):
     self.rewards.track_ang_vel_z_exp.params["std"] = 0.20
     self.rewards.keep_balance.weight = 0.1
     self.rewards.base_height_exp.weight = 0.3
-    self.rewards.flat_orientation_l2.weight = -1.7
+    self.rewards.flat_orientation_l2.weight = -1.9
     self.rewards.lin_vel_z_l2.weight = -0.6
     self.rewards.body_lin_acc.weight = -0.0025
     self.rewards.gait_reward.weight = 0.45
     self.rewards.feet_distance.weight = 1.0
     self.rewards.feet_air_time.weight = 0.0
-    self.rewards.feet_slide.weight = -0.12
-    self.rewards.feet_ang_slide_penalty.weight = -0.15
+    self.rewards.feet_slide.weight = -0.18
+    self.rewards.feet_ang_slide_penalty.weight = -0.22
     self.rewards.action_rate_l2.weight = -0.012
     self.rewards.action_smoothness.weight = -0.00045
-    self.rewards.knee_joint_orientation.weight = -0.6
+    self.rewards.knee_joint_orientation.weight = -0.8
     self.rewards.torques_smoothness_penalty.weight = -3.0e-7
     self.rewards.same_feet_x_position = RewTerm(
         func=mdp.same_feet_x_position,
@@ -211,11 +211,11 @@ def _use_gait_stabilization_rewards(self):
     )
     self.rewards.swing_foot_clearance = RewTerm(
         func=mdp.swing_foot_clearance_reward,
-        weight=0.75,
+        weight=0.70,
         params={
             "sensor_cfg": SceneEntityCfg("contact_forces", body_names="ankle_pitch_.*"),
             "asset_cfg": SceneEntityCfg("robot", body_names="ankle_pitch_.*"),
-            "target_height": 0.12,
+            "target_height": 0.11,
             "std": 0.05,
         },
     )
@@ -235,11 +235,11 @@ def _use_gait_stabilization_rewards(self):
     )
     self.rewards.single_stance_feet_x_separation = RewTerm(
         func=mdp.single_stance_feet_x_separation_reward,
-        weight=0.12,
+        weight=0.08,
         params={
             "sensor_cfg": SceneEntityCfg("contact_forces", body_names="ankle_pitch_.*"),
             "asset_cfg": SceneEntityCfg("robot", body_names="ankle_pitch_.*"),
-            "target_distance": 0.18,
+            "target_distance": 0.15,
             "std": 0.08,
         },
     )
@@ -254,10 +254,10 @@ def _use_gait_stabilization_rewards(self):
     )
 
 
-def _use_gait_heading_termination(self):
+def _use_gait_heading_termination(self, limit_angle=math.radians(25.0)):
     self.terminations.bad_heading = DoneTerm(
         func=mdp.bad_heading,
-        params={"target_heading": 0.0, "limit_angle": math.radians(25.0)},
+        params={"target_heading": 0.0, "limit_angle": limit_angle},
     )
 
 
@@ -365,6 +365,6 @@ class SFYG_TRON2A_BlindGaitTronCampEnvCfg_PLAY(SFYG_TRON2A_BlindTronCampEnvCfg_P
         super().__post_init__()
         _use_gait_stabilization_commands(self)
         _use_gait_stabilization_rewards(self)
-        _use_gait_heading_termination(self)
+        _use_gait_heading_termination(self, limit_angle=math.radians(35.0))
         _use_gait_stabilization_resets(self)
         self.scene.num_envs = 1
