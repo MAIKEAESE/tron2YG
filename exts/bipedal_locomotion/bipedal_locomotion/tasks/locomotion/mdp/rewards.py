@@ -78,6 +78,19 @@ def lin_vel_x_shortfall_penalty(
     return torch.clamp(target_vel_x - vel_yaw[:, 0] - deadband, min=0.0)
 
 
+def track_world_lin_vel_x_exp(
+    env: ManagerBasedRLEnv,
+    std: float,
+    command_name: str,
+    asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+) -> torch.Tensor:
+    """Reward tracking forward velocity along the world/track X axis."""
+    asset: RigidObject = env.scene[asset_cfg.name]
+    target_vel_x = env.command_manager.get_command(command_name)[:, 0]
+    lin_vel_error = torch.square(target_vel_x - asset.data.root_lin_vel_w[:, 0])
+    return torch.exp(-lin_vel_error / std**2)
+
+
 def track_lin_vel_y_yaw_frame_exp(
     env: ManagerBasedRLEnv,
     std: float,

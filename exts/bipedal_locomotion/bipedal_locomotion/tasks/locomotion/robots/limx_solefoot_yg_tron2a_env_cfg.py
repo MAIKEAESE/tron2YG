@@ -143,8 +143,13 @@ def _use_gait_stabilization_commands(self):
 
 
 def _use_gait_stabilization_rewards(self):
-    self.rewards.track_lin_vel_x_exp.weight = 6.0
+    self.rewards.track_lin_vel_x_exp.weight = 3.5
     self.rewards.track_lin_vel_x_exp.params["std"] = 0.25
+    self.rewards.track_world_lin_vel_x_exp = RewTerm(
+        func=mdp.track_world_lin_vel_x_exp,
+        weight=4.0,
+        params={"command_name": "base_velocity", "std": 0.25},
+    )
     self.rewards.track_lin_vel_y_exp.weight = 3.5
     self.rewards.track_lin_vel_y_exp.params["std"] = 0.18
     self.rewards.track_ang_vel_z_exp.weight = 4.0
@@ -180,16 +185,16 @@ def _use_gait_stabilization_rewards(self):
     )
     self.rewards.heading_error_abs = RewTerm(
         func=mdp.heading_error_abs,
-        weight=-2.0,
+        weight=-4.0,
         params={"target_heading": 0.0},
     )
     self.rewards.world_lin_vel_y_abs = RewTerm(
         func=mdp.world_lin_vel_y_abs,
-        weight=-1.5,
+        weight=-3.0,
     )
     self.rewards.world_pos_y_abs = RewTerm(
         func=mdp.world_pos_y_abs,
-        weight=-0.6,
+        weight=-1.0,
     )
     self.rewards.forward_speed_shortfall = RewTerm(
         func=mdp.lin_vel_x_shortfall_penalty,
