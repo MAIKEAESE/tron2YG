@@ -120,6 +120,14 @@ def _use_track_aligned_resets(self):
     }
 
 
+def _use_gait_stabilization_resets(self):
+    _use_track_aligned_resets(self)
+    if self.events.reset_robot_joints is None:
+        return
+    self.events.reset_robot_joints.params["position_range"] = (-0.1, 0.1)
+    self.events.reset_robot_joints.params["velocity_range"] = (0.0, 0.0)
+
+
 def _use_gait_stabilization_commands(self):
     self.commands.base_velocity.heading_command = True
     self.commands.base_velocity.rel_standing_envs = 0.0
@@ -298,7 +306,7 @@ class SFYG_TRON2A_BlindGaitEnvCfg(SFYG_TRON2A_BlindFlatEnvCfg):
         super().__post_init__()
         _use_gait_stabilization_commands(self)
         _use_gait_stabilization_rewards(self)
-        _use_track_aligned_resets(self)
+        _use_gait_stabilization_resets(self)
 
 
 @configclass
@@ -307,5 +315,5 @@ class SFYG_TRON2A_BlindGaitEnvCfg_PLAY(SFYG_TRON2A_BlindFlatEnvCfg_PLAY):
         super().__post_init__()
         _use_gait_stabilization_commands(self)
         _use_gait_stabilization_rewards(self)
-        _use_track_aligned_resets(self)
+        _use_gait_stabilization_resets(self)
         self.scene.num_envs = 1
