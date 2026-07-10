@@ -136,6 +136,31 @@ def heading_error_abs(
     return torch.abs(normalize_angle(yaw - target_heading))
 
 
+def heading_error_deadband(
+    env: ManagerBasedRLEnv,
+    target_heading: float = 0.0,
+    deadband: float = 0.15,
+    asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+) -> torch.Tensor:
+    """Penalize yaw error only outside a small free exploration band."""
+    asset: RigidObject = env.scene[asset_cfg.name]
+    _, _, yaw = math_utils.euler_xyz_from_quat(asset.data.root_quat_w)
+    yaw_error = torch.abs(normalize_angle(yaw - target_heading))
+    return torch.clamp(yaw_error - deadband, min=0.0)
+
+
+def bad_heading(
+    env: ManagerBasedRLEnv,
+    limit_angle: float,
+    target_heading: float = 0.0,
+    asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+) -> torch.Tensor:
+    """Terminate episodes when yaw drifts too far from the target heading."""
+    asset: RigidObject = env.scene[asset_cfg.name]
+    _, _, yaw = math_utils.euler_xyz_from_quat(asset.data.root_quat_w)
+    return torch.abs(normalize_angle(yaw - target_heading)) > limit_angle
+
+
 def world_lin_vel_y_abs(
     env: ManagerBasedRLEnv,
     asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),

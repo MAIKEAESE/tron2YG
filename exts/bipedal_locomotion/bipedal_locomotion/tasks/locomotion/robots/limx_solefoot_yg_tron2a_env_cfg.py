@@ -1,5 +1,8 @@
+import math
+
 from isaaclab.managers import RewardTermCfg as RewTerm
 from isaaclab.managers import SceneEntityCfg
+from isaaclab.managers import TerminationTermCfg as DoneTerm
 from isaaclab.utils import configclass
 
 from bipedal_locomotion.assets.config.solefoot_yg_tron2a_cfg import SOLEFOOT_YG_TRON2A_CFG
@@ -184,9 +187,9 @@ def _use_gait_stabilization_rewards(self):
         params={"target_heading": 0.0, "std": 0.18},
     )
     self.rewards.heading_error_abs = RewTerm(
-        func=mdp.heading_error_abs,
-        weight=-4.0,
-        params={"target_heading": 0.0},
+        func=mdp.heading_error_deadband,
+        weight=-6.0,
+        params={"target_heading": 0.0, "deadband": math.radians(8.0)},
     )
     self.rewards.world_lin_vel_y_abs = RewTerm(
         func=mdp.world_lin_vel_y_abs,
@@ -248,6 +251,13 @@ def _use_gait_stabilization_rewards(self):
             "std": 0.16,
             "max_tilt": 0.35,
         },
+    )
+
+
+def _use_gait_heading_termination(self):
+    self.terminations.bad_heading = DoneTerm(
+        func=mdp.bad_heading,
+        params={"target_heading": 0.0, "limit_angle": math.radians(25.0)},
     )
 
 
@@ -324,6 +334,7 @@ class SFYG_TRON2A_BlindGaitEnvCfg(SFYG_TRON2A_BlindFlatEnvCfg):
         super().__post_init__()
         _use_gait_stabilization_commands(self)
         _use_gait_stabilization_rewards(self)
+        _use_gait_heading_termination(self)
         _use_gait_stabilization_resets(self)
 
 
@@ -333,5 +344,6 @@ class SFYG_TRON2A_BlindGaitEnvCfg_PLAY(SFYG_TRON2A_BlindFlatEnvCfg_PLAY):
         super().__post_init__()
         _use_gait_stabilization_commands(self)
         _use_gait_stabilization_rewards(self)
+        _use_gait_heading_termination(self)
         _use_gait_stabilization_resets(self)
         self.scene.num_envs = 1
