@@ -178,7 +178,7 @@ def _use_gait_stabilization_rewards(self):
     )
     self.rewards.centerline_y = RewTerm(
         func=mdp.track_centerline_y,
-        weight=5.0,
+        weight=6.0,
         params={"std": 0.22},
     )
     self.rewards.heading_alignment = RewTerm(
@@ -197,24 +197,24 @@ def _use_gait_stabilization_rewards(self):
     )
     self.rewards.world_pos_y_abs = RewTerm(
         func=mdp.world_pos_y_deadband,
-        weight=-4.0,
+        weight=-6.0,
         params={"deadband": 0.06},
     )
     self.rewards.predicted_path_lateral_error = RewTerm(
         func=mdp.predicted_path_lateral_error,
-        weight=-8.0,
+        weight=-6.0,
         params={
             "target_heading": 0.0,
-            "hip_weight": 0.15,
-            "step_weight": 0.85,
-            "same_direction_weight": 0.10,
+            "hip_weight": 0.10,
+            "step_weight": 0.65,
+            "same_direction_weight": 0.05,
             "deadband": 0.015,
             "feet_cfg": SceneEntityCfg("robot", body_names="ankle_pitch_.*"),
         },
     )
     self.rewards.lateral_correction_velocity = RewTerm(
         func=mdp.lateral_correction_velocity_exp,
-        weight=5.0,
+        weight=3.0,
         params={
             "gain": 0.8,
             "max_correction_speed": 0.35,
@@ -284,7 +284,7 @@ def _use_gait_heading_termination(self, limit_angle=math.radians(35.0)):
     )
 
 
-def _use_gait_lateral_termination(self, limit_distance=0.75):
+def _use_gait_lateral_termination(self, limit_distance=0.50):
     self.terminations.bad_lateral_drift = DoneTerm(
         func=mdp.bad_lateral_drift,
         params={"limit_distance": limit_distance},
