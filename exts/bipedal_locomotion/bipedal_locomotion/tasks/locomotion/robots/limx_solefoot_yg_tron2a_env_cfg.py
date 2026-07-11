@@ -94,25 +94,29 @@ def _use_policy_height_scan(self):
 
 
 def _use_perceptive_stair_clearance(self):
-    self.commands.gait_command.ranges.swing_height = (0.12, 0.18)
-    self.rewards.single_stance.weight = 0.55
+    self.commands.gait_command.ranges.swing_height = (0.15, 0.24)
+    self.rewards.single_stance.weight = 0.65
     self.rewards.swing_foot_clearance = RewTerm(
         func=mdp.terrain_adaptive_swing_foot_clearance_reward,
-        weight=0.95,
+        weight=1.35,
         params={
             "sensor_cfg": SceneEntityCfg("contact_forces", body_names="ankle_pitch_.*"),
             "asset_cfg": SceneEntityCfg("robot", body_names="ankle_pitch_.*"),
             "ray_sensor_cfg": SceneEntityCfg("height_scanner"),
-            "base_height": 0.12,
-            "obstacle_margin": 0.04,
-            "max_target_height": 0.20,
-            "std": 0.05,
-            "front_min_x": 0.25,
-            "near_abs_x": 0.20,
-            "obstacle_threshold": 0.04,
+            "base_height": 0.14,
+            "obstacle_margin": 0.08,
+            "max_target_height": 0.28,
+            "std": 0.06,
+            "front_min_x": 0.15,
+            "near_abs_x": 0.25,
+            "obstacle_threshold": 0.025,
         },
     )
-    self.rewards.double_flight.weight = -1.4
+    self.rewards.double_flight.weight = -1.6
+    self.rewards.same_feet_x_position.weight = -0.004
+    self.rewards.single_stance_feet_x_separation.weight = 0.18
+    self.rewards.single_stance_feet_x_separation.params["target_distance"] = 0.22
+    self.rewards.single_stance_feet_x_separation.params["std"] = 0.10
 
 
 def _use_forward_walking_commands(self):

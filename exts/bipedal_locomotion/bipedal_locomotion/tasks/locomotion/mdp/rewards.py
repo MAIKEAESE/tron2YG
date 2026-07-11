@@ -551,7 +551,9 @@ def terrain_adaptive_swing_foot_clearance_reward(
     ray_sensor: RayCaster = env.scene[ray_sensor_cfg.name]
     ray_hits = ray_sensor.data.ray_hits_w
     valid_hits = torch.isfinite(ray_hits).all(dim=-1)
-    rel_x = ray_hits[..., 0] - asset.data.root_pos_w[:, 0].unsqueeze(1)
+    yaw_frame = math_utils.yaw_quat(asset.data.root_quat_w).unsqueeze(1).expand(-1, ray_hits.shape[1], -1)
+    rel_hits = math_utils.quat_apply_inverse(yaw_frame, ray_hits - asset.data.root_pos_w.unsqueeze(1))
+    rel_x = rel_hits[..., 0]
 
     front_mask = valid_hits & (rel_x > front_min_x)
     near_mask = valid_hits & (torch.abs(rel_x) < near_abs_x)
