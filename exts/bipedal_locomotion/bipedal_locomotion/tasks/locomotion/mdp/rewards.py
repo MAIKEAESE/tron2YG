@@ -215,6 +215,35 @@ def bad_lateral_drift(
     return torch.abs(asset.data.root_pos_w[:, 1] - target_y) > limit_distance
 
 
+def predicted_path_lateral_error(
+    env: ManagerBasedRLEnv,
+    target_heading: float = 0.0,
+    hip_weight: float = 0.65,
+    step_weight: float = 0.35,
+    deadband: float = 0.03,
+    asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+    feet_cfg: SceneEntityCfg = SceneEntityCfg("robot", body_names="ankle_pitch_.*"),
+) -> torch.Tensor:
+    """Estimate whether the current body yaw and foot placement will steer the robot off the target path."""
+    asset: RigidObject | Articulation = env.scene[asset_cfg.name]
+
+    _, _, yaw = math_utils.euler_xyz_from_quat(asset.data.root_quat_w)
+    yaw_error = normalize_angle(yaw - target_heading)
+    hip_lateral = torch.sin(yaw_error)
+
+    target_heading_tensor = torch.tensor(target_heading, device=env.device)
+    target_forward = torch.stack((torch.cos(target_heading_tensor), torch.sin(target_heading_tensor)))
+    feet_pos_w = asset.data.body_link_pos_w[:, feet_cfg.body_ids, :2]
+    feet_line = feet_pos_w[:, 0] - feet_pos_w[:, 1]
+    feet_line_norm = torch.norm(feet_line, dim=1, keepdim=True).clamp(min=1.0e-6)
+    feet_lateral_axis = feet_line / feet_line_norm
+
+    # A clean forward gait keeps the left-right foot line perpendicular to target_forward.
+    step_slant = torch.sum(feet_lateral_axis * target_forward, dim=1)
+    predicted_lateral = hip_weight * hip_lateral + step_weight * step_slant
+    return torch.clamp(torch.abs(predicted_lateral) - deadband, min=0.0)
+
+
 def joint_powers_l1(
     env: ManagerBasedRLEnv,
     asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),

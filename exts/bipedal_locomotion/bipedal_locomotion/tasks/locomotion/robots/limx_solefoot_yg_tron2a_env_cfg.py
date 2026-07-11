@@ -200,6 +200,17 @@ def _use_gait_stabilization_rewards(self):
         weight=-2.0,
         params={"deadband": 0.10},
     )
+    self.rewards.predicted_path_lateral_error = RewTerm(
+        func=mdp.predicted_path_lateral_error,
+        weight=-5.0,
+        params={
+            "target_heading": 0.0,
+            "hip_weight": 0.65,
+            "step_weight": 0.35,
+            "deadband": 0.03,
+            "feet_cfg": SceneEntityCfg("robot", body_names="ankle_pitch_.*"),
+        },
+    )
     self.rewards.forward_speed_shortfall = RewTerm(
         func=mdp.lin_vel_x_shortfall_penalty,
         weight=-4.0,
