@@ -346,6 +346,14 @@ def _use_gait_lateral_termination(self, limit_distance=0.50):
     )
 
 
+def _use_competition_exposure_training(self):
+    # Keep fall/contact terminations, but let imperfect policies survive long enough
+    # to collect experience on the downhill exit and stair sections.
+    _use_gait_heading_termination(self, limit_angle=math.radians(50.0))
+    _use_gait_lateral_termination(self, limit_distance=1.00)
+    self.episode_length_s = 30.0
+
+
 @configclass
 class SFYG_TRON2A_BaseEnvCfg(SF_TRON2A_BaseEnvCfg):
     def __post_init__(self):
@@ -464,6 +472,7 @@ class SFYG_TRON2A_PerceptiveGaitTronCampEnvCfg(SFYG_TRON2A_BlindGaitTronCampEnvC
         _use_base_height_scanner(self)
         _use_policy_height_scan(self)
         _use_perceptive_stair_clearance(self)
+        _use_competition_exposure_training(self)
 
 
 @configclass
