@@ -165,8 +165,8 @@ def _use_gait_stabilization_rewards(self):
     self.rewards.gait_reward.weight = 0.45
     self.rewards.feet_distance.weight = 1.0
     self.rewards.feet_air_time.weight = 0.0
-    self.rewards.feet_slide.weight = -0.18
-    self.rewards.feet_ang_slide_penalty.weight = -0.22
+    self.rewards.feet_slide.weight = -0.24
+    self.rewards.feet_ang_slide_penalty.weight = -0.28
     self.rewards.action_rate_l2.weight = -0.012
     self.rewards.action_smoothness.weight = -0.00045
     self.rewards.knee_joint_orientation.weight = -0.8
@@ -217,6 +217,8 @@ def _use_gait_stabilization_rewards(self):
         weight=3.0,
         params={
             "gain": 0.8,
+            "far_gain": 1.2,
+            "far_threshold": 0.25,
             "max_correction_speed": 0.35,
             "std": 0.18,
             "deadband": 0.05,
@@ -226,6 +228,11 @@ def _use_gait_stabilization_rewards(self):
         func=mdp.lin_vel_x_shortfall_penalty,
         weight=-4.0,
         params={"command_name": "base_velocity", "deadband": 0.05},
+    )
+    self.rewards.forward_overspeed = RewTerm(
+        func=mdp.forward_overspeed_penalty,
+        weight=-3.0,
+        params={"command_name": "base_velocity", "margin": 0.08},
     )
     self.rewards.single_stance = RewTerm(
         func=mdp.single_stance_reward,

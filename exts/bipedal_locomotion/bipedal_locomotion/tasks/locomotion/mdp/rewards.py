@@ -78,6 +78,18 @@ def lin_vel_x_shortfall_penalty(
     return torch.clamp(target_vel_x - vel_yaw[:, 0] - deadband, min=0.0)
 
 
+def forward_overspeed_penalty(
+    env: ManagerBasedRLEnv,
+    command_name: str,
+    margin: float = 0.08,
+    asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+) -> torch.Tensor:
+    """Penalize moving faster than the commanded track-forward velocity."""
+    asset: RigidObject = env.scene[asset_cfg.name]
+    target_vel_x = env.command_manager.get_command(command_name)[:, 0]
+    return torch.clamp(asset.data.root_lin_vel_w[:, 0] - target_vel_x - margin, min=0.0)
+
+
 def track_world_lin_vel_x_exp(
     env: ManagerBasedRLEnv,
     std: float,
@@ -203,6 +215,8 @@ def world_pos_y_deadband(
 def lateral_correction_velocity_exp(
     env: ManagerBasedRLEnv,
     gain: float = 0.8,
+    far_gain: float = 1.2,
+    far_threshold: float = 0.25,
     max_correction_speed: float = 0.35,
     std: float = 0.18,
     deadband: float = 0.05,
@@ -217,12 +231,18 @@ def lateral_correction_velocity_exp(
         target_y = env_origins[:, 1]
 
     lateral_error = asset.data.root_pos_w[:, 1] - target_y
+    abs_lateral_error = torch.abs(lateral_error)
     correction_error = torch.where(
-        torch.abs(lateral_error) > deadband,
+        abs_lateral_error > deadband,
         lateral_error,
         torch.zeros_like(lateral_error),
     )
-    target_vy = torch.clamp(-gain * correction_error, -max_correction_speed, max_correction_speed)
+    correction_gain = torch.where(
+        abs_lateral_error > far_threshold,
+        torch.full_like(lateral_error, far_gain),
+        torch.full_like(lateral_error, gain),
+    )
+    target_vy = torch.clamp(-correction_gain * correction_error, -max_correction_speed, max_correction_speed)
     vel_error = asset.data.root_lin_vel_w[:, 1] - target_vy
     return torch.exp(-torch.square(vel_error) / std**2)
 
