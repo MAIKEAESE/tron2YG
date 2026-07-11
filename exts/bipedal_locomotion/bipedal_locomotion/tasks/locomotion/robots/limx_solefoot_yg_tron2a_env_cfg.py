@@ -1,8 +1,10 @@
 import math
 
+from isaaclab.managers import ObservationTermCfg as ObsTerm
 from isaaclab.managers import RewardTermCfg as RewTerm
 from isaaclab.managers import SceneEntityCfg
 from isaaclab.managers import TerminationTermCfg as DoneTerm
+from isaaclab.sensors import RayCasterCfg, patterns
 from isaaclab.utils import configclass
 
 from bipedal_locomotion.assets.config.solefoot_yg_tron2a_cfg import SOLEFOOT_YG_TRON2A_CFG
@@ -65,6 +67,30 @@ def _use_generated_flat_terrain(self, terrain_generator):
 def _use_tron_camp_training_terrain(self):
     self.scene.terrain = TRON_CAMP_TRAINING_TERRAIN_CFG
     self.scene.robot.init_state.pos = (0.0, 0.0, TRON2_SPAWN_Z)
+
+
+def _use_base_height_scanner(self):
+    self.scene.height_scanner = RayCasterCfg(
+        prim_path="{ENV_REGEX_NS}/Robot/base_Link",
+        offset=RayCasterCfg.OffsetCfg(pos=(0.0, 0.0, 20.0)),
+        attach_yaw_only=True,
+        pattern_cfg=patterns.GridPatternCfg(
+            resolution=0.10,
+            size=(1.6, 1.0),
+        ),
+        debug_vis=False,
+        mesh_prim_paths=["/World/ground"],
+    )
+    self.scene.height_scanner.update_period = self.decimation * self.sim.dt
+
+
+def _use_policy_height_scan(self):
+    self.observations.policy.height_scan = ObsTerm(
+        func=mdp.height_scan,
+        params={"sensor_cfg": SceneEntityCfg("height_scanner"), "offset": 0.8},
+        clip=(-1.0, 1.0),
+        scale=5.0,
+    )
 
 
 def _use_forward_walking_commands(self):
@@ -406,4 +432,21 @@ class SFYG_TRON2A_BlindGaitTronCampEnvCfg_PLAY(SFYG_TRON2A_BlindTronCampEnvCfg_P
         _use_gait_stabilization_rewards(self)
         _use_gait_heading_termination(self, limit_angle=math.radians(35.0))
         _use_gait_stabilization_resets(self)
+        self.scene.num_envs = 1
+
+
+@configclass
+class SFYG_TRON2A_PerceptiveGaitTronCampEnvCfg(SFYG_TRON2A_BlindGaitTronCampEnvCfg):
+    def __post_init__(self):
+        super().__post_init__()
+        _use_base_height_scanner(self)
+        _use_policy_height_scan(self)
+
+
+@configclass
+class SFYG_TRON2A_PerceptiveGaitTronCampEnvCfg_PLAY(SFYG_TRON2A_BlindGaitTronCampEnvCfg_PLAY):
+    def __post_init__(self):
+        super().__post_init__()
+        _use_base_height_scanner(self)
+        _use_policy_height_scan(self)
         self.scene.num_envs = 1
