@@ -184,6 +184,37 @@ def world_pos_y_abs(
     return torch.abs(asset.data.root_pos_w[:, 1] - target_y)
 
 
+def world_pos_y_deadband(
+    env: ManagerBasedRLEnv,
+    deadband: float = 0.10,
+    asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+) -> torch.Tensor:
+    """Penalize lateral displacement from the terrain cell centerline outside a small free band."""
+    asset: RigidObject = env.scene[asset_cfg.name]
+    env_origins = getattr(env.scene, "env_origins", None)
+    if env_origins is None:
+        target_y = torch.zeros(env.num_envs, device=env.device)
+    else:
+        target_y = env_origins[:, 1]
+    lateral_error = torch.abs(asset.data.root_pos_w[:, 1] - target_y)
+    return torch.clamp(lateral_error - deadband, min=0.0)
+
+
+def bad_lateral_drift(
+    env: ManagerBasedRLEnv,
+    limit_distance: float,
+    asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+) -> torch.Tensor:
+    """Terminate episodes when the robot drifts too far from the terrain cell centerline."""
+    asset: RigidObject = env.scene[asset_cfg.name]
+    env_origins = getattr(env.scene, "env_origins", None)
+    if env_origins is None:
+        target_y = torch.zeros(env.num_envs, device=env.device)
+    else:
+        target_y = env_origins[:, 1]
+    return torch.abs(asset.data.root_pos_w[:, 1] - target_y) > limit_distance
+
+
 def joint_powers_l1(
     env: ManagerBasedRLEnv,
     asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),

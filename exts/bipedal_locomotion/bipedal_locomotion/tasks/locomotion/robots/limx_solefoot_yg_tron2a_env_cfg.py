@@ -178,26 +178,27 @@ def _use_gait_stabilization_rewards(self):
     )
     self.rewards.centerline_y = RewTerm(
         func=mdp.track_centerline_y,
-        weight=3.0,
-        params={"std": 0.35},
+        weight=4.0,
+        params={"std": 0.28},
     )
     self.rewards.heading_alignment = RewTerm(
         func=mdp.heading_alignment_exp,
-        weight=2.0,
-        params={"target_heading": 0.0, "std": 0.18},
+        weight=2.5,
+        params={"target_heading": 0.0, "std": 0.15},
     )
     self.rewards.heading_error_abs = RewTerm(
         func=mdp.heading_error_deadband,
-        weight=-6.0,
-        params={"target_heading": 0.0, "deadband": math.radians(8.0)},
+        weight=-7.5,
+        params={"target_heading": 0.0, "deadband": math.radians(6.0)},
     )
     self.rewards.world_lin_vel_y_abs = RewTerm(
         func=mdp.world_lin_vel_y_abs,
-        weight=-3.0,
+        weight=-4.0,
     )
     self.rewards.world_pos_y_abs = RewTerm(
-        func=mdp.world_pos_y_abs,
-        weight=-1.0,
+        func=mdp.world_pos_y_deadband,
+        weight=-2.0,
+        params={"deadband": 0.10},
     )
     self.rewards.forward_speed_shortfall = RewTerm(
         func=mdp.lin_vel_x_shortfall_penalty,
@@ -258,6 +259,13 @@ def _use_gait_heading_termination(self, limit_angle=math.radians(25.0)):
     self.terminations.bad_heading = DoneTerm(
         func=mdp.bad_heading,
         params={"target_heading": 0.0, "limit_angle": limit_angle},
+    )
+
+
+def _use_gait_lateral_termination(self, limit_distance=0.85):
+    self.terminations.bad_lateral_drift = DoneTerm(
+        func=mdp.bad_lateral_drift,
+        params={"limit_distance": limit_distance},
     )
 
 
@@ -335,6 +343,7 @@ class SFYG_TRON2A_BlindGaitEnvCfg(SFYG_TRON2A_BlindFlatEnvCfg):
         _use_gait_stabilization_commands(self)
         _use_gait_stabilization_rewards(self)
         _use_gait_heading_termination(self)
+        _use_gait_lateral_termination(self)
         _use_gait_stabilization_resets(self)
 
 
@@ -356,6 +365,7 @@ class SFYG_TRON2A_BlindGaitTronCampEnvCfg(SFYG_TRON2A_BlindTronCampEnvCfg):
         _use_gait_stabilization_commands(self)
         _use_gait_stabilization_rewards(self)
         _use_gait_heading_termination(self)
+        _use_gait_lateral_termination(self)
         _use_gait_stabilization_resets(self)
 
 
