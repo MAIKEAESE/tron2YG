@@ -523,6 +523,57 @@ def swing_foot_clearance_reward(
     return torch.where(single_stance, reward, torch.zeros_like(reward))
 
 
+def terrain_adaptive_swing_foot_clearance_reward(
+    env: ManagerBasedRLEnv,
+    sensor_cfg: SceneEntityCfg,
+    asset_cfg: SceneEntityCfg,
+    ray_sensor_cfg: SceneEntityCfg,
+    base_height: float = 0.12,
+    obstacle_margin: float = 0.04,
+    max_target_height: float = 0.20,
+    std: float = 0.05,
+    front_min_x: float = 0.25,
+    near_abs_x: float = 0.20,
+    obstacle_threshold: float = 0.04,
+    threshold: float = 1.0,
+) -> torch.Tensor:
+    """Reward swing-foot clearance that increases only when the height scan sees a step ahead."""
+    contact_sensor: ContactSensor = env.scene.sensors[sensor_cfg.name]
+    contacts = (
+        contact_sensor.data.net_forces_w_history[:, :, sensor_cfg.body_ids, :].norm(dim=-1).max(dim=1)[0] > threshold
+    )
+    single_stance = torch.sum(contacts.int(), dim=1) == 1
+
+    asset: RigidObject | Articulation = env.scene[asset_cfg.name]
+    foot_z = asset.data.body_pos_w[:, asset_cfg.body_ids, 2]
+    clearance = torch.max(foot_z, dim=1)[0] - torch.min(foot_z, dim=1)[0]
+
+    ray_sensor: RayCaster = env.scene[ray_sensor_cfg.name]
+    ray_hits = ray_sensor.data.ray_hits_w
+    valid_hits = torch.isfinite(ray_hits).all(dim=-1)
+    rel_x = ray_hits[..., 0] - asset.data.root_pos_w[:, 0].unsqueeze(1)
+
+    front_mask = valid_hits & (rel_x > front_min_x)
+    near_mask = valid_hits & (torch.abs(rel_x) < near_abs_x)
+
+    low = torch.full_like(ray_hits[..., 2], -1.0e6)
+    front_z = torch.max(torch.where(front_mask, ray_hits[..., 2], low), dim=1)[0]
+
+    near_count = torch.sum(near_mask.float(), dim=1).clamp(min=1.0)
+    near_z = torch.sum(torch.where(near_mask, ray_hits[..., 2], torch.zeros_like(ray_hits[..., 2])), dim=1) / near_count
+
+    obstacle_height = torch.clamp(front_z - near_z, min=0.0)
+    extra_clearance = torch.where(
+        obstacle_height > obstacle_threshold,
+        obstacle_height + obstacle_margin,
+        torch.zeros_like(obstacle_height),
+    )
+    target_height = torch.clamp(base_height + extra_clearance, max=max_target_height)
+
+    reward = torch.exp(-torch.square(clearance - target_height) / std**2)
+    return torch.where(single_stance, reward, torch.zeros_like(reward))
+
+
 def double_stance_feet_x_alignment_reward(
     env: ManagerBasedRLEnv,
     sensor_cfg: SceneEntityCfg,
