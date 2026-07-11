@@ -218,13 +218,14 @@ def bad_lateral_drift(
 def predicted_path_lateral_error(
     env: ManagerBasedRLEnv,
     target_heading: float = 0.0,
-    hip_weight: float = 0.65,
-    step_weight: float = 0.35,
-    deadband: float = 0.03,
+    hip_weight: float = 0.55,
+    step_weight: float = 0.45,
+    same_direction_weight: float = 0.35,
+    deadband: float = 0.015,
     asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
     feet_cfg: SceneEntityCfg = SceneEntityCfg("robot", body_names="ankle_pitch_.*"),
 ) -> torch.Tensor:
-    """Estimate whether the current body yaw and foot placement will steer the robot off the target path."""
+    """Estimate whether body yaw and foot placement will steer the robot off the target path."""
     asset: RigidObject | Articulation = env.scene[asset_cfg.name]
 
     _, _, yaw = math_utils.euler_xyz_from_quat(asset.data.root_quat_w)
@@ -240,7 +241,13 @@ def predicted_path_lateral_error(
 
     # A clean forward gait keeps the left-right foot line perpendicular to target_forward.
     step_slant = torch.sum(feet_lateral_axis * target_forward, dim=1)
-    predicted_lateral = hip_weight * hip_lateral + step_weight * step_slant
+    same_direction = (hip_lateral * step_slant > 0.0).float()
+    same_direction_bias = same_direction * torch.minimum(torch.abs(hip_lateral), torch.abs(step_slant))
+    predicted_lateral = (
+        hip_weight * torch.abs(hip_lateral)
+        + step_weight * torch.abs(step_slant)
+        + same_direction_weight * same_direction_bias
+    )
     return torch.clamp(torch.abs(predicted_lateral) - deadband, min=0.0)
 
 

@@ -178,36 +178,37 @@ def _use_gait_stabilization_rewards(self):
     )
     self.rewards.centerline_y = RewTerm(
         func=mdp.track_centerline_y,
-        weight=4.0,
-        params={"std": 0.28},
+        weight=5.0,
+        params={"std": 0.22},
     )
     self.rewards.heading_alignment = RewTerm(
         func=mdp.heading_alignment_exp,
-        weight=2.5,
-        params={"target_heading": 0.0, "std": 0.15},
+        weight=3.0,
+        params={"target_heading": 0.0, "std": 0.12},
     )
     self.rewards.heading_error_abs = RewTerm(
         func=mdp.heading_error_deadband,
-        weight=-7.5,
-        params={"target_heading": 0.0, "deadband": math.radians(6.0)},
+        weight=-10.0,
+        params={"target_heading": 0.0, "deadband": math.radians(4.0)},
     )
     self.rewards.world_lin_vel_y_abs = RewTerm(
         func=mdp.world_lin_vel_y_abs,
-        weight=-4.0,
+        weight=-7.0,
     )
     self.rewards.world_pos_y_abs = RewTerm(
         func=mdp.world_pos_y_deadband,
-        weight=-2.0,
-        params={"deadband": 0.10},
+        weight=-4.0,
+        params={"deadband": 0.06},
     )
     self.rewards.predicted_path_lateral_error = RewTerm(
         func=mdp.predicted_path_lateral_error,
-        weight=-5.0,
+        weight=-12.0,
         params={
             "target_heading": 0.0,
-            "hip_weight": 0.65,
-            "step_weight": 0.35,
-            "deadband": 0.03,
+            "hip_weight": 0.55,
+            "step_weight": 0.45,
+            "same_direction_weight": 0.35,
+            "deadband": 0.015,
             "feet_cfg": SceneEntityCfg("robot", body_names="ankle_pitch_.*"),
         },
     )
@@ -273,7 +274,7 @@ def _use_gait_heading_termination(self, limit_angle=math.radians(25.0)):
     )
 
 
-def _use_gait_lateral_termination(self, limit_distance=0.85):
+def _use_gait_lateral_termination(self, limit_distance=0.60):
     self.terminations.bad_lateral_drift = DoneTerm(
         func=mdp.bad_lateral_drift,
         params={"limit_distance": limit_distance},
