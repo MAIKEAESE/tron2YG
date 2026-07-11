@@ -204,7 +204,7 @@ def _use_gait_stabilization_rewards(self):
     )
     self.rewards.centerline_y = RewTerm(
         func=mdp.track_centerline_y,
-        weight=6.0,
+        weight=8.0,
         params={"std": 0.22},
     )
     self.rewards.heading_alignment = RewTerm(
@@ -223,7 +223,7 @@ def _use_gait_stabilization_rewards(self):
     )
     self.rewards.world_pos_y_abs = RewTerm(
         func=mdp.world_pos_y_deadband,
-        weight=-6.0,
+        weight=-8.0,
         params={"deadband": 0.06},
     )
     self.rewards.predicted_path_lateral_error = RewTerm(
@@ -240,12 +240,12 @@ def _use_gait_stabilization_rewards(self):
     )
     self.rewards.lateral_correction_velocity = RewTerm(
         func=mdp.lateral_correction_velocity_exp,
-        weight=3.0,
+        weight=4.0,
         params={
             "gain": 0.8,
             "far_gain": 1.2,
             "far_threshold": 0.25,
-            "max_correction_speed": 0.35,
+            "max_correction_speed": 0.45,
             "std": 0.18,
             "deadband": 0.05,
         },
