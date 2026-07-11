@@ -200,6 +200,33 @@ def world_pos_y_deadband(
     return torch.clamp(lateral_error - deadband, min=0.0)
 
 
+def lateral_correction_velocity_exp(
+    env: ManagerBasedRLEnv,
+    gain: float = 0.8,
+    max_correction_speed: float = 0.35,
+    std: float = 0.18,
+    deadband: float = 0.05,
+    asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+) -> torch.Tensor:
+    """Reward world-Y velocity that actively steers the robot back to the terrain cell centerline."""
+    asset: RigidObject = env.scene[asset_cfg.name]
+    env_origins = getattr(env.scene, "env_origins", None)
+    if env_origins is None:
+        target_y = torch.zeros(env.num_envs, device=env.device)
+    else:
+        target_y = env_origins[:, 1]
+
+    lateral_error = asset.data.root_pos_w[:, 1] - target_y
+    correction_error = torch.where(
+        torch.abs(lateral_error) > deadband,
+        lateral_error,
+        torch.zeros_like(lateral_error),
+    )
+    target_vy = torch.clamp(-gain * correction_error, -max_correction_speed, max_correction_speed)
+    vel_error = asset.data.root_lin_vel_w[:, 1] - target_vy
+    return torch.exp(-torch.square(vel_error) / std**2)
+
+
 def bad_lateral_drift(
     env: ManagerBasedRLEnv,
     limit_distance: float,
