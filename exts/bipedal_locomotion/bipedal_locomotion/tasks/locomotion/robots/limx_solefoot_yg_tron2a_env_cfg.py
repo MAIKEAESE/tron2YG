@@ -354,6 +354,36 @@ def _use_competition_exposure_training(self):
     self.episode_length_s = 30.0
 
 
+def _use_random_direction_terrain_training(self):
+    self.commands.base_velocity.heading_command = True
+    self.commands.base_velocity.rel_standing_envs = 0.0
+    self.commands.base_velocity.rel_heading_envs = 1.0
+    self.commands.base_velocity.ranges.lin_vel_x = (0.35, 0.75)
+    self.commands.base_velocity.ranges.lin_vel_y = (-0.10, 0.10)
+    self.commands.base_velocity.ranges.ang_vel_z = (-0.35, 0.35)
+    self.commands.base_velocity.ranges.heading = (-0.75, 0.75)
+
+    self.rewards.track_lin_vel_x_exp.weight = 4.0
+    self.rewards.track_lin_vel_y_exp.weight = 2.0
+    self.rewards.track_ang_vel_z_exp.weight = 2.0
+    self.rewards.forward_speed_shortfall.weight = -3.0
+    self.rewards.forward_overspeed.weight = -2.0
+
+    # World-frame route rewards conflict with random heading pretraining.
+    self.rewards.track_world_lin_vel_x_exp.weight = 0.0
+    self.rewards.centerline_y.weight = 0.0
+    self.rewards.heading_alignment.weight = 0.0
+    self.rewards.heading_error_abs.weight = 0.0
+    self.rewards.world_lin_vel_y_abs.weight = 0.0
+    self.rewards.world_pos_y_abs.weight = 0.0
+    self.rewards.predicted_path_lateral_error.weight = 0.0
+    self.rewards.lateral_correction_velocity.weight = 0.0
+
+    self.terminations.bad_heading = None
+    self.terminations.bad_lateral_drift = None
+    self.episode_length_s = 30.0
+
+
 @configclass
 class SFYG_TRON2A_BaseEnvCfg(SF_TRON2A_BaseEnvCfg):
     def __post_init__(self):
@@ -482,4 +512,19 @@ class SFYG_TRON2A_PerceptiveGaitTronCampEnvCfg_PLAY(SFYG_TRON2A_BlindGaitTronCam
         _use_base_height_scanner(self)
         _use_policy_height_scan(self)
         _use_perceptive_stair_clearance(self)
+        self.scene.num_envs = 1
+
+
+@configclass
+class SFYG_TRON2A_PerceptiveRandomDirTronCampEnvCfg(SFYG_TRON2A_PerceptiveGaitTronCampEnvCfg):
+    def __post_init__(self):
+        super().__post_init__()
+        _use_random_direction_terrain_training(self)
+
+
+@configclass
+class SFYG_TRON2A_PerceptiveRandomDirTronCampEnvCfg_PLAY(SFYG_TRON2A_PerceptiveGaitTronCampEnvCfg_PLAY):
+    def __post_init__(self):
+        super().__post_init__()
+        _use_random_direction_terrain_training(self)
         self.scene.num_envs = 1
