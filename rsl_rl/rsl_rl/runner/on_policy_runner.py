@@ -381,7 +381,7 @@ class OnPolicyRunner:
                     if v.shape == model_state_dict[k].shape:
                         filtered_state_dict[k] = v
                     elif module_name == "actor_critic" and k == "actor.0.weight":
-                        current_weight = model_state_dict[k].clone()
+                        current_weight = torch.zeros_like(model_state_dict[k])
                         encoder_dim = self.alg.encoder.num_output_dim
                         old_total_dim = v.shape[1]
                         new_total_dim = current_weight.shape[1]
@@ -402,7 +402,7 @@ class OnPolicyRunner:
                             filtered_state_dict[k] = current_weight
                             print(
                                 f"[Warning] Expanded {module_name} key '{k}' from checkpoint shape {v.shape} "
-                                f"to model shape {current_weight.shape}. New observation columns keep initialization."
+                                f"to model shape {current_weight.shape}. New observation columns are zero-initialized."
                             )
                         else:
                             print(
