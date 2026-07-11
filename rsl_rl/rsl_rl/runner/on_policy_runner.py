@@ -369,26 +369,31 @@ class OnPolicyRunner:
 
     def load(self, path, load_optimizer=False):
         loaded_dict = torch.load(path)
-        
-        # Check for size mismatch in actor_critic and load selectively
-        model_state_dict = self.alg.actor_critic.state_dict()
-        checkpoint_state_dict = loaded_dict["model_state_dict"]
-        
-        filtered_state_dict = {}
-        for k, v in checkpoint_state_dict.items():
-            if k in model_state_dict:
-                if v.shape == model_state_dict[k].shape:
-                    filtered_state_dict[k] = v
+
+        def _load_matching_state_dict(module, checkpoint_state_dict, module_name):
+            model_state_dict = module.state_dict()
+            filtered_state_dict = {}
+            for k, v in checkpoint_state_dict.items():
+                if k in model_state_dict:
+                    if v.shape == model_state_dict[k].shape:
+                        filtered_state_dict[k] = v
+                    else:
+                        print(
+                            f"[Warning] Size mismatch for {module_name} key '{k}': "
+                            f"checkpoint shape {v.shape}, model shape {model_state_dict[k].shape}. Skipping this key."
+                        )
                 else:
-                    print(f"[Warning] Size mismatch for key '{k}': checkpoint shape {v.shape}, model shape {model_state_dict[k].shape}. Skipping this key.")
-            else:
-                print(f"[Warning] Key '{k}' not found in model. Skipping.")
-        
-        self.alg.actor_critic.load_state_dict(filtered_state_dict, strict=False)
-        
+                    print(f"[Warning] Key '{k}' not found in {module_name}. Skipping.")
+
+            module.load_state_dict(filtered_state_dict, strict=False)
+
+        # Check for size mismatch in actor_critic and load selectively
+        checkpoint_state_dict = loaded_dict["model_state_dict"]
+        _load_matching_state_dict(self.alg.actor_critic, checkpoint_state_dict, "actor_critic")
+
         # Load encoder if it exists in checkpoint
         if "encoder_state_dict" in loaded_dict:
-            self.alg.encoder.load_state_dict(loaded_dict["encoder_state_dict"])
+            _load_matching_state_dict(self.alg.encoder, loaded_dict["encoder_state_dict"], "encoder")
             
         if load_optimizer and "optimizer_state_dict" in loaded_dict:
             try:
