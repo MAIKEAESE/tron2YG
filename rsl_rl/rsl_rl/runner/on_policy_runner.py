@@ -380,6 +380,35 @@ class OnPolicyRunner:
                 if k in model_state_dict:
                     if v.shape == model_state_dict[k].shape:
                         filtered_state_dict[k] = v
+                    elif module_name == "actor_critic" and k == "actor.0.weight":
+                        current_weight = model_state_dict[k].clone()
+                        encoder_dim = self.alg.encoder.num_output_dim
+                        old_total_dim = v.shape[1]
+                        new_total_dim = current_weight.shape[1]
+                        old_obs_dim = old_total_dim - encoder_dim - self.num_commands
+                        new_obs_dim = new_total_dim - encoder_dim - self.num_commands
+                        if (
+                            v.ndim == 2
+                            and current_weight.ndim == 2
+                            and v.shape[0] == current_weight.shape[0]
+                            and old_obs_dim > 0
+                            and new_obs_dim >= old_obs_dim
+                        ):
+                            current_weight[:, :encoder_dim] = v[:, :encoder_dim]
+                            current_weight[:, encoder_dim : encoder_dim + old_obs_dim] = v[
+                                :, encoder_dim : encoder_dim + old_obs_dim
+                            ]
+                            current_weight[:, -self.num_commands :] = v[:, -self.num_commands :]
+                            filtered_state_dict[k] = current_weight
+                            print(
+                                f"[Warning] Expanded {module_name} key '{k}' from checkpoint shape {v.shape} "
+                                f"to model shape {current_weight.shape}. New observation columns keep initialization."
+                            )
+                        else:
+                            print(
+                                f"[Warning] Size mismatch for {module_name} key '{k}': "
+                                f"checkpoint shape {v.shape}, model shape {model_state_dict[k].shape}. Skipping this key."
+                            )
                     else:
                         print(
                             f"[Warning] Size mismatch for {module_name} key '{k}': "
