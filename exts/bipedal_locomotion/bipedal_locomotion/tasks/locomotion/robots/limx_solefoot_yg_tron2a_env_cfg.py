@@ -185,9 +185,9 @@ def _use_gait_stabilization_rewards(self):
     self.rewards.track_ang_vel_z_exp.params["std"] = 0.20
     self.rewards.keep_balance.weight = 0.1
     self.rewards.base_height_exp.weight = 0.3
-    self.rewards.flat_orientation_l2.weight = -1.9
+    self.rewards.flat_orientation_l2.weight = -2.3
     self.rewards.lin_vel_z_l2.weight = -0.6
-    self.rewards.body_lin_acc.weight = -0.0025
+    self.rewards.body_lin_acc.weight = -0.003
     self.rewards.gait_reward.weight = 0.45
     self.rewards.feet_distance.weight = 1.0
     self.rewards.feet_air_time.weight = 0.0
@@ -204,17 +204,17 @@ def _use_gait_stabilization_rewards(self):
     )
     self.rewards.centerline_y = RewTerm(
         func=mdp.track_centerline_y,
-        weight=8.0,
+        weight=7.0,
         params={"std": 0.22},
     )
     self.rewards.heading_alignment = RewTerm(
         func=mdp.heading_alignment_exp,
-        weight=1.0,
+        weight=0.3,
         params={"target_heading": 0.0, "std": 0.25},
     )
     self.rewards.heading_error_abs = RewTerm(
         func=mdp.heading_error_deadband,
-        weight=-2.5,
+        weight=-1.0,
         params={"target_heading": 0.0, "deadband": math.radians(10.0)},
     )
     self.rewards.world_lin_vel_y_abs = RewTerm(
@@ -223,7 +223,7 @@ def _use_gait_stabilization_rewards(self):
     )
     self.rewards.world_pos_y_abs = RewTerm(
         func=mdp.world_pos_y_deadband,
-        weight=-8.0,
+        weight=-7.0,
         params={"deadband": 0.06},
     )
     self.rewards.predicted_path_lateral_error = RewTerm(
@@ -231,7 +231,7 @@ def _use_gait_stabilization_rewards(self):
         weight=-6.0,
         params={
             "target_heading": 0.0,
-            "hip_weight": 0.10,
+            "hip_weight": 0.03,
             "step_weight": 0.65,
             "same_direction_weight": 0.05,
             "deadband": 0.015,
@@ -240,12 +240,12 @@ def _use_gait_stabilization_rewards(self):
     )
     self.rewards.lateral_correction_velocity = RewTerm(
         func=mdp.lateral_correction_velocity_exp,
-        weight=4.0,
+        weight=3.5,
         params={
             "gain": 0.8,
             "far_gain": 1.2,
             "far_threshold": 0.25,
-            "max_correction_speed": 0.45,
+            "max_correction_speed": 0.38,
             "std": 0.18,
             "deadband": 0.05,
         },

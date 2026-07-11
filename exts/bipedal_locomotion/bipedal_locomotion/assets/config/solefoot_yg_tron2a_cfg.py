@@ -94,9 +94,9 @@ SOLEFOOT_YG_TRON2A_CFG = ArticulationCfg(
         ),
         "arm_lock": ImplicitActuatorCfg(
             joint_names_expr=["arm[1-6]_Joint", "gripper[12]_Joint"],
-            stiffness=120.0,
-            damping=12.0,
-            effort_limit=80.0,
+            stiffness=300.0,
+            damping=25.0,
+            effort_limit=120.0,
             velocity_limit=10.0,
             friction=0.0,
         ),
