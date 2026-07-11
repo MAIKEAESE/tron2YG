@@ -73,7 +73,7 @@ def _use_base_height_scanner(self):
     self.scene.height_scanner = RayCasterCfg(
         prim_path="{ENV_REGEX_NS}/Robot/base_Link",
         offset=RayCasterCfg.OffsetCfg(pos=(0.0, 0.0, 20.0)),
-        attach_yaw_only=True,
+        ray_alignment="yaw",
         pattern_cfg=patterns.GridPatternCfg(
             resolution=0.10,
             size=(1.6, 1.0),
