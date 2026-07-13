@@ -112,11 +112,11 @@ def _use_perceptive_stair_clearance(self):
             "obstacle_threshold": 0.025,
         },
     )
-    self.rewards.double_flight.weight = -1.8
+    self.rewards.double_flight.weight = -2.4
     self.rewards.same_feet_x_position.weight = -0.004
-    self.rewards.single_stance_feet_x_separation.weight = 0.20
-    self.rewards.single_stance_feet_x_separation.params["target_distance"] = 0.25
-    self.rewards.single_stance_feet_x_separation.params["std"] = 0.11
+    self.rewards.single_stance_feet_x_separation.weight = 0.16
+    self.rewards.single_stance_feet_x_separation.params["target_distance"] = 0.23
+    self.rewards.single_stance_feet_x_separation.params["std"] = 0.10
 
 
 def _use_forward_walking_commands(self):
@@ -203,12 +203,12 @@ def _use_tron_camp_curriculum_resets(self):
             # Local x offsets are relative to each generated track origin.
             # They target feature entries, not feature tops, so the spawn z
             # remains valid across randomized terrain cells.
-            {"name": "start_flat", "x_range": (-0.2, 0.8), "weight": 0.20},
-            {"name": "up_ramp_entry", "x_range": (2.0, 4.8), "weight": 0.12},
-            {"name": "downhill_exit", "x_range": (10.0, 17.0), "weight": 0.14},
+            {"name": "start_flat", "x_range": (-0.2, 0.8), "weight": 0.30},
+            {"name": "up_ramp_entry", "x_range": (2.0, 4.8), "weight": 0.14},
+            {"name": "downhill_exit", "x_range": (10.0, 17.0), "weight": 0.16},
             {"name": "bumps_entry", "x_range": (16.0, 27.0), "weight": 0.16},
-            {"name": "stairs_entry", "x_range": (24.0, 39.0), "weight": 0.28},
-            {"name": "platform_entry", "x_range": (42.0, 58.0), "weight": 0.10},
+            {"name": "stairs_entry", "x_range": (24.0, 39.0), "weight": 0.18},
+            {"name": "platform_entry", "x_range": (42.0, 58.0), "weight": 0.06},
         ),
     }
 
@@ -260,7 +260,7 @@ def _use_gait_stabilization_rewards(self):
     )
     self.rewards.centerline_y = RewTerm(
         func=mdp.track_centerline_y,
-        weight=7.0,
+        weight=8.5,
         params={"std": 0.22},
     )
     self.rewards.heading_alignment = RewTerm(
@@ -279,7 +279,7 @@ def _use_gait_stabilization_rewards(self):
     )
     self.rewards.world_pos_y_abs = RewTerm(
         func=mdp.world_pos_y_deadband,
-        weight=-7.0,
+        weight=-9.0,
         params={"deadband": 0.06},
     )
     self.rewards.predicted_path_lateral_error = RewTerm(
@@ -296,7 +296,7 @@ def _use_gait_stabilization_rewards(self):
     )
     self.rewards.lateral_correction_velocity = RewTerm(
         func=mdp.lateral_correction_velocity_exp,
-        weight=3.5,
+        weight=5.0,
         params={
             "gain": 0.8,
             "far_gain": 1.2,
