@@ -98,7 +98,7 @@ def _use_perceptive_stair_clearance(self):
     self.rewards.single_stance.weight = 0.65
     self.rewards.swing_foot_clearance = RewTerm(
         func=mdp.terrain_adaptive_swing_foot_clearance_reward,
-        weight=1.30,
+        weight=0.85,
         params={
             "sensor_cfg": SceneEntityCfg("contact_forces", body_names="ankle_pitch_.*"),
             "asset_cfg": SceneEntityCfg("robot", body_names="ankle_pitch_.*"),
@@ -110,6 +110,8 @@ def _use_perceptive_stair_clearance(self):
             "front_min_x": 0.15,
             "near_abs_x": 0.25,
             "obstacle_threshold": 0.025,
+            "min_forward_speed": 0.30,
+            "max_tilt": 0.55,
         },
     )
     self.rewards.double_flight.weight = -3.8
@@ -138,12 +140,14 @@ def _use_perceptive_stair_clearance(self):
     )
     self.rewards.swing_knee_flexion = RewTerm(
         func=mdp.swing_knee_flexion_reward,
-        weight=0.22,
+        weight=0.12,
         params={
             "sensor_cfg": SceneEntityCfg("contact_forces", body_names="ankle_pitch_.*"),
             "asset_cfg": SceneEntityCfg("robot", joint_names="knee_[LR]_Joint"),
             "target_flexion": 0.30,
             "std": 0.20,
+            "min_forward_speed": 0.30,
+            "max_tilt": 0.55,
         },
     )
     self.rewards.stance_knee_extension = RewTerm(

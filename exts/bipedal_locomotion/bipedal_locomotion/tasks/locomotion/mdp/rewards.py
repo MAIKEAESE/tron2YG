@@ -535,9 +535,11 @@ def terrain_adaptive_swing_foot_clearance_reward(
     front_min_x: float = 0.25,
     near_abs_x: float = 0.20,
     obstacle_threshold: float = 0.04,
+    min_forward_speed: float = 0.30,
+    max_tilt: float = 0.55,
     threshold: float = 1.0,
 ) -> torch.Tensor:
-    """Reward swing-foot clearance that increases only when the height scan sees a step ahead."""
+    """Reward swing-foot clearance only while the policy is still walking and balanced."""
     contact_sensor: ContactSensor = env.scene.sensors[sensor_cfg.name]
     contacts = (
         contact_sensor.data.net_forces_w_history[:, :, sensor_cfg.body_ids, :].norm(dim=-1).max(dim=1)[0] > threshold
@@ -547,6 +549,9 @@ def terrain_adaptive_swing_foot_clearance_reward(
     asset: RigidObject | Articulation = env.scene[asset_cfg.name]
     foot_z = asset.data.body_pos_w[:, asset_cfg.body_ids, 2]
     clearance = torch.max(foot_z, dim=1)[0] - torch.min(foot_z, dim=1)[0]
+    moving_forward = asset.data.root_lin_vel_w[:, 0] > min_forward_speed
+    tilt = torch.norm(asset.data.projected_gravity_b[:, :2], dim=1)
+    balanced = tilt < max_tilt
 
     ray_sensor: RayCaster = env.scene[ray_sensor_cfg.name]
     ray_hits = ray_sensor.data.ray_hits_w
@@ -573,7 +578,8 @@ def terrain_adaptive_swing_foot_clearance_reward(
     target_height = torch.clamp(base_height + extra_clearance, max=max_target_height)
 
     reward = torch.exp(-torch.square(clearance - target_height) / std**2)
-    return torch.where(single_stance, reward, torch.zeros_like(reward))
+    valid = single_stance & moving_forward & balanced
+    return torch.where(valid, reward, torch.zeros_like(reward))
 
 
 def stance_foot_stability_reward(
@@ -634,9 +640,11 @@ def swing_knee_flexion_reward(
     asset_cfg: SceneEntityCfg,
     target_flexion: float = 0.35,
     std: float = 0.20,
+    min_forward_speed: float = 0.30,
+    max_tilt: float = 0.55,
     threshold: float = 1.0,
 ) -> torch.Tensor:
-    """Reward knee bend on the swing leg during single support."""
+    """Reward knee bend on the swing leg only during stable forward single support."""
     contact_sensor: ContactSensor = env.scene.sensors[sensor_cfg.name]
     contacts = (
         contact_sensor.data.net_forces_w_history[:, :, sensor_cfg.body_ids, :].norm(dim=-1).max(dim=1)[0] > threshold
@@ -645,12 +653,16 @@ def swing_knee_flexion_reward(
     swing_mask = (~contacts) & single_stance.unsqueeze(-1)
 
     asset: Articulation = env.scene[asset_cfg.name]
+    moving_forward = asset.data.root_lin_vel_w[:, 0] > min_forward_speed
+    tilt = torch.norm(asset.data.projected_gravity_b[:, :2], dim=1)
+    balanced = tilt < max_tilt
     knee_delta = asset.data.joint_pos[:, asset_cfg.joint_ids] - asset.data.default_joint_pos[:, asset_cfg.joint_ids]
     # The YG knee sign convention is not assumed here; either flexion sign should count as a bend.
     knee_flexion = torch.abs(knee_delta)
     swing_flexion = torch.sum(knee_flexion * swing_mask.float(), dim=1)
     reward = torch.exp(-torch.square(swing_flexion - target_flexion) / std**2)
-    return torch.where(single_stance, reward, torch.zeros_like(reward))
+    valid = single_stance & moving_forward & balanced
+    return torch.where(valid, reward, torch.zeros_like(reward))
 
 
 def stance_knee_extension_reward(
