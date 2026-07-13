@@ -183,6 +183,36 @@ def _use_gait_stabilization_resets(self):
     self.events.reset_robot_joints.params["velocity_range"] = (0.0, 0.0)
 
 
+def _use_tron_camp_curriculum_resets(self):
+    if self.events.reset_robot_base is None:
+        return
+    self.events.reset_robot_base.func = mdp.reset_root_state_tron_camp_curriculum
+    self.events.reset_robot_base.params = {
+        "z_range": (TRON2_SPAWN_Z, TRON2_SPAWN_Z + 0.04),
+        "y_range": (-0.18, 0.18),
+        "yaw_range": (-0.08, 0.08),
+        "velocity_range": {
+            "x": (0.0, 0.15),
+            "y": (-0.04, 0.04),
+            "z": (-0.02, 0.02),
+            "roll": (-0.05, 0.05),
+            "pitch": (-0.05, 0.05),
+            "yaw": (-0.05, 0.05),
+        },
+        "curriculum_segments": (
+            # Local x offsets are relative to each generated track origin.
+            # They target feature entries, not feature tops, so the spawn z
+            # remains valid across randomized terrain cells.
+            {"name": "start_flat", "x_range": (-0.2, 0.8), "weight": 0.20},
+            {"name": "up_ramp_entry", "x_range": (2.0, 4.8), "weight": 0.12},
+            {"name": "downhill_exit", "x_range": (10.0, 17.0), "weight": 0.14},
+            {"name": "bumps_entry", "x_range": (16.0, 27.0), "weight": 0.16},
+            {"name": "stairs_entry", "x_range": (24.0, 39.0), "weight": 0.28},
+            {"name": "platform_entry", "x_range": (42.0, 58.0), "weight": 0.10},
+        ),
+    }
+
+
 def _use_gait_stabilization_commands(self):
     self.commands.base_velocity.heading_command = True
     self.commands.base_velocity.rel_standing_envs = 0.0
@@ -507,6 +537,7 @@ class SFYG_TRON2A_PerceptiveGaitTronCampEnvCfg(SFYG_TRON2A_BlindGaitTronCampEnvC
         _use_policy_height_scan(self)
         _use_perceptive_stair_clearance(self)
         _use_competition_exposure_training(self)
+        _use_tron_camp_curriculum_resets(self)
 
 
 @configclass

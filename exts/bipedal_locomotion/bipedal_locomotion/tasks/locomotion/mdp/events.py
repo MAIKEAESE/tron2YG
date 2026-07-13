@@ -68,6 +68,70 @@ def apply_external_force_torque_stochastic(
     asset.set_external_force_and_torque(forces, torques, env_ids=masked_env_ids, body_ids=asset_cfg.body_ids)
 
 
+def reset_root_state_tron_camp_curriculum(
+    env: ManagerBasedEnv,
+    env_ids: torch.Tensor | None,
+    curriculum_segments: tuple[dict, ...],
+    z_range: tuple[float, float],
+    y_range: tuple[float, float] = (-0.15, 0.15),
+    yaw_range: tuple[float, float] = (-0.08, 0.08),
+    velocity_range: dict[str, tuple[float, float]] | None = None,
+    asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+):
+    """Reset the robot near mixed TronCamp terrain features.
+
+    The generated TronCamp track has a stable local feature order, but each
+    terrain cell samples exact lengths and heights. Spawn before feature entries
+    instead of on top of obstacles so the default base height stays valid across
+    randomized cells.
+    """
+    asset: Articulation = env.scene[asset_cfg.name]
+    if env_ids is None:
+        env_ids = torch.arange(env.scene.num_envs, device=asset.device)
+
+    num_resets = len(env_ids)
+    device = asset.device
+    root_states = asset.data.default_root_state[env_ids].clone()
+    env_origins = getattr(env.scene, "env_origins", None)
+    if env_origins is None:
+        env_origin_pos = torch.zeros((num_resets, 3), device=device)
+    else:
+        env_origin_pos = env_origins[env_ids].to(device)
+
+    weights = torch.tensor([float(segment["weight"]) for segment in curriculum_segments], device=device)
+    weights = weights / torch.sum(weights)
+    segment_ids = torch.multinomial(weights, num_resets, replacement=True)
+
+    x_offsets = torch.zeros(num_resets, device=device)
+    for segment_index, segment in enumerate(curriculum_segments):
+        mask = segment_ids == segment_index
+        if not torch.any(mask):
+            continue
+        x_min, x_max = segment["x_range"]
+        x_offsets[mask] = torch.empty(int(torch.sum(mask).item()), device=device).uniform_(float(x_min), float(x_max))
+
+    y_offsets = torch.empty(num_resets, device=device).uniform_(float(y_range[0]), float(y_range[1]))
+    yaw = torch.empty(num_resets, device=device).uniform_(float(yaw_range[0]), float(yaw_range[1]))
+    z = torch.empty(num_resets, device=device).uniform_(float(z_range[0]), float(z_range[1]))
+
+    root_states[:, 0] = env_origin_pos[:, 0] + x_offsets
+    root_states[:, 1] = env_origin_pos[:, 1] + y_offsets
+    root_states[:, 2] = env_origin_pos[:, 2] + z
+    root_states[:, 3:7] = math_utils.quat_from_euler_xyz(
+        torch.zeros_like(yaw),
+        torch.zeros_like(yaw),
+        yaw,
+    )
+
+    velocity_range = velocity_range or {}
+    for index, key in enumerate(("x", "y", "z", "roll", "pitch", "yaw")):
+        low, high = velocity_range.get(key, (0.0, 0.0))
+        root_states[:, 7 + index] = torch.empty(num_resets, device=device).uniform_(float(low), float(high))
+
+    asset.write_root_pose_to_sim(root_states[:, :7], env_ids=env_ids)
+    asset.write_root_velocity_to_sim(root_states[:, 7:], env_ids=env_ids)
+
+
 def randomize_rigid_body_mass_inertia(
     env: ManagerBasedEnv,
     env_ids: torch.Tensor | None,
