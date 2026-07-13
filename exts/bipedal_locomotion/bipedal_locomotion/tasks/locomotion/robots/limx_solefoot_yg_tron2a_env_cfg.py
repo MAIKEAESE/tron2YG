@@ -112,11 +112,40 @@ def _use_perceptive_stair_clearance(self):
             "obstacle_threshold": 0.025,
         },
     )
-    self.rewards.double_flight.weight = -2.4
+    self.rewards.double_flight.weight = -3.2
     self.rewards.same_feet_x_position.weight = -0.004
-    self.rewards.single_stance_feet_x_separation.weight = 0.16
+    self.rewards.single_stance_feet_x_separation.weight = 0.0
     self.rewards.single_stance_feet_x_separation.params["target_distance"] = 0.23
     self.rewards.single_stance_feet_x_separation.params["std"] = 0.10
+    self.rewards.stance_foot_stability = RewTerm(
+        func=mdp.stance_foot_stability_reward,
+        weight=0.50,
+        params={
+            "sensor_cfg": SceneEntityCfg("contact_forces", body_names="ankle_pitch_.*"),
+            "asset_cfg": SceneEntityCfg("robot", body_names="ankle_pitch_.*"),
+            "foot_vel_std": 0.12,
+            "max_tilt": 0.45,
+        },
+    )
+    self.rewards.swing_foot_lateral_deviation = RewTerm(
+        func=mdp.swing_foot_lateral_deviation,
+        weight=-1.20,
+        params={
+            "sensor_cfg": SceneEntityCfg("contact_forces", body_names="ankle_pitch_.*"),
+            "asset_cfg": SceneEntityCfg("robot", body_names="ankle_pitch_.*"),
+            "max_abs_y": 0.18,
+        },
+    )
+    self.rewards.swing_knee_flexion = RewTerm(
+        func=mdp.swing_knee_flexion_reward,
+        weight=0.35,
+        params={
+            "sensor_cfg": SceneEntityCfg("contact_forces", body_names="ankle_pitch_.*"),
+            "asset_cfg": SceneEntityCfg("robot", joint_names="knee_[LR]_Joint"),
+            "target_flexion": 0.35,
+            "std": 0.20,
+        },
+    )
 
 
 def _use_forward_walking_commands(self):
@@ -245,12 +274,12 @@ def _use_gait_stabilization_rewards(self):
     self.rewards.lin_vel_z_l2.weight = -0.6
     self.rewards.body_lin_acc.weight = -0.003
     self.rewards.gait_reward.weight = 0.45
-    self.rewards.feet_distance.weight = 1.0
+    self.rewards.feet_distance.weight = 0.5
     self.rewards.feet_air_time.weight = 0.0
     self.rewards.feet_slide.weight = -0.24
     self.rewards.feet_ang_slide_penalty.weight = -0.28
-    self.rewards.action_rate_l2.weight = -0.008
-    self.rewards.action_smoothness.weight = -0.00030
+    self.rewards.action_rate_l2.weight = -0.005
+    self.rewards.action_smoothness.weight = -0.00020
     self.rewards.knee_joint_orientation.weight = -0.8
     self.rewards.torques_smoothness_penalty.weight = -3.0e-7
     self.rewards.same_feet_x_position = RewTerm(
@@ -275,7 +304,7 @@ def _use_gait_stabilization_rewards(self):
     )
     self.rewards.world_lin_vel_y_abs = RewTerm(
         func=mdp.world_lin_vel_y_abs,
-        weight=-7.0,
+        weight=-3.5,
     )
     self.rewards.world_pos_y_abs = RewTerm(
         func=mdp.world_pos_y_deadband,
@@ -284,7 +313,7 @@ def _use_gait_stabilization_rewards(self):
     )
     self.rewards.predicted_path_lateral_error = RewTerm(
         func=mdp.predicted_path_lateral_error,
-        weight=-6.0,
+        weight=-3.0,
         params={
             "target_heading": 0.0,
             "hip_weight": 0.03,

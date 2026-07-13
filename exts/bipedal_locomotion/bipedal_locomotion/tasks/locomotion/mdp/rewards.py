@@ -576,6 +576,83 @@ def terrain_adaptive_swing_foot_clearance_reward(
     return torch.where(single_stance, reward, torch.zeros_like(reward))
 
 
+def stance_foot_stability_reward(
+    env: ManagerBasedRLEnv,
+    sensor_cfg: SceneEntityCfg,
+    asset_cfg: SceneEntityCfg,
+    foot_vel_std: float = 0.12,
+    max_tilt: float = 0.45,
+    threshold: float = 1.0,
+) -> torch.Tensor:
+    """Reward a quiet stance foot while the body remains balanced during single support."""
+    contact_sensor: ContactSensor = env.scene.sensors[sensor_cfg.name]
+    contacts = (
+        contact_sensor.data.net_forces_w_history[:, :, sensor_cfg.body_ids, :].norm(dim=-1).max(dim=1)[0] > threshold
+    )
+    single_stance = torch.sum(contacts.int(), dim=1) == 1
+
+    asset: RigidObject | Articulation = env.scene[asset_cfg.name]
+    foot_speed_xy = torch.norm(asset.data.body_lin_vel_w[:, asset_cfg.body_ids, :2], dim=-1)
+    stance_speed = torch.sum(foot_speed_xy * contacts.float(), dim=1)
+    speed_reward = torch.exp(-torch.square(stance_speed) / foot_vel_std**2)
+
+    tilt = torch.norm(asset.data.projected_gravity_b[:, :2], dim=1)
+    balance_reward = torch.exp(-torch.square(tilt) / max_tilt**2)
+    reward = speed_reward * balance_reward
+    return torch.where(single_stance, reward, torch.zeros_like(reward))
+
+
+def swing_foot_lateral_deviation(
+    env: ManagerBasedRLEnv,
+    sensor_cfg: SceneEntityCfg,
+    asset_cfg: SceneEntityCfg,
+    max_abs_y: float = 0.18,
+    threshold: float = 1.0,
+) -> torch.Tensor:
+    """Penalize swing-foot side lift outside a loose body-frame lateral corridor."""
+    contact_sensor: ContactSensor = env.scene.sensors[sensor_cfg.name]
+    contacts = (
+        contact_sensor.data.net_forces_w_history[:, :, sensor_cfg.body_ids, :].norm(dim=-1).max(dim=1)[0] > threshold
+    )
+    single_stance = torch.sum(contacts.int(), dim=1) == 1
+    swing_mask = (~contacts) & single_stance.unsqueeze(-1)
+
+    asset: RigidObject | Articulation = env.scene[asset_cfg.name]
+    feet_pos_w = asset.data.body_link_pos_w[:, asset_cfg.body_ids]
+    base_quat = asset.data.root_link_quat_w.unsqueeze(1).expand(-1, feet_pos_w.shape[1], -1)
+    base_pos = asset.data.root_link_state_w[:, :3].unsqueeze(1).expand(-1, feet_pos_w.shape[1], -1)
+    feet_pos_b = math_utils.quat_apply_inverse(base_quat, feet_pos_w - base_pos)
+
+    swing_abs_y = torch.sum(torch.abs(feet_pos_b[:, :, 1]) * swing_mask.float(), dim=1)
+    penalty = torch.clamp(swing_abs_y - max_abs_y, min=0.0)
+    return torch.where(single_stance, penalty, torch.zeros_like(penalty))
+
+
+def swing_knee_flexion_reward(
+    env: ManagerBasedRLEnv,
+    sensor_cfg: SceneEntityCfg,
+    asset_cfg: SceneEntityCfg,
+    target_flexion: float = 0.35,
+    std: float = 0.20,
+    threshold: float = 1.0,
+) -> torch.Tensor:
+    """Reward knee bend on the swing leg during single support."""
+    contact_sensor: ContactSensor = env.scene.sensors[sensor_cfg.name]
+    contacts = (
+        contact_sensor.data.net_forces_w_history[:, :, sensor_cfg.body_ids, :].norm(dim=-1).max(dim=1)[0] > threshold
+    )
+    single_stance = torch.sum(contacts.int(), dim=1) == 1
+    swing_mask = (~contacts) & single_stance.unsqueeze(-1)
+
+    asset: Articulation = env.scene[asset_cfg.name]
+    knee_delta = asset.data.joint_pos[:, asset_cfg.joint_ids] - asset.data.default_joint_pos[:, asset_cfg.joint_ids]
+    # The YG knee sign convention is not assumed here; either flexion sign should count as a bend.
+    knee_flexion = torch.abs(knee_delta)
+    swing_flexion = torch.sum(knee_flexion * swing_mask.float(), dim=1)
+    reward = torch.exp(-torch.square(swing_flexion - target_flexion) / std**2)
+    return torch.where(single_stance, reward, torch.zeros_like(reward))
+
+
 def double_stance_feet_x_alignment_reward(
     env: ManagerBasedRLEnv,
     sensor_cfg: SceneEntityCfg,
