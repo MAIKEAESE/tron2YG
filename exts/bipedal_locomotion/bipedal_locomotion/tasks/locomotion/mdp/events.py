@@ -73,6 +73,7 @@ def reset_root_state_tron_camp_curriculum(
     env_ids: torch.Tensor | None,
     curriculum_segments: tuple[dict, ...],
     z_range: tuple[float, float],
+    phase_schedule: tuple[dict, ...] | None = None,
     y_range: tuple[float, float] = (-0.15, 0.15),
     yaw_range: tuple[float, float] = (-0.08, 0.08),
     velocity_range: dict[str, tuple[float, float]] | None = None,
@@ -98,7 +99,7 @@ def reset_root_state_tron_camp_curriculum(
     else:
         env_origin_pos = env_origins[env_ids].to(device)
 
-    weights = torch.tensor([float(segment["weight"]) for segment in curriculum_segments], device=device)
+    weights = _resolve_tron_camp_curriculum_weights(env, curriculum_segments, phase_schedule, device)
     weights = weights / torch.sum(weights)
     segment_ids = torch.multinomial(weights, num_resets, replacement=True)
 
@@ -130,6 +131,50 @@ def reset_root_state_tron_camp_curriculum(
 
     asset.write_root_pose_to_sim(root_states[:, :7], env_ids=env_ids)
     asset.write_root_velocity_to_sim(root_states[:, 7:], env_ids=env_ids)
+
+
+def _resolve_tron_camp_curriculum_weights(
+    env: ManagerBasedEnv,
+    curriculum_segments: tuple[dict, ...],
+    phase_schedule: tuple[dict, ...] | None,
+    device: torch.device,
+) -> torch.Tensor:
+    """Resolve segment sampling weights, optionally interpolating over training progress."""
+    segment_names = [str(segment["name"]) for segment in curriculum_segments]
+    if not phase_schedule:
+        return torch.tensor([float(segment["weight"]) for segment in curriculum_segments], device=device)
+
+    current_step = float(getattr(env, "common_step_counter", 0))
+    phases = sorted(phase_schedule, key=lambda phase: float(phase["step"]))
+
+    if current_step <= float(phases[0]["step"]):
+        weights_by_name = phases[0]["weights"]
+    elif current_step >= float(phases[-1]["step"]):
+        weights_by_name = phases[-1]["weights"]
+    else:
+        lower_phase = phases[0]
+        upper_phase = phases[-1]
+        for index in range(len(phases) - 1):
+            left = phases[index]
+            right = phases[index + 1]
+            if float(left["step"]) <= current_step <= float(right["step"]):
+                lower_phase = left
+                upper_phase = right
+                break
+
+        lower_step = float(lower_phase["step"])
+        upper_step = float(upper_phase["step"])
+        alpha = 0.0 if upper_step <= lower_step else (current_step - lower_step) / (upper_step - lower_step)
+        weights_by_name = {
+            name: (1.0 - alpha) * float(lower_phase["weights"].get(name, 0.0))
+            + alpha * float(upper_phase["weights"].get(name, 0.0))
+            for name in segment_names
+        }
+
+    weights = torch.tensor([float(weights_by_name.get(name, 0.0)) for name in segment_names], device=device)
+    if torch.sum(weights) <= 0.0:
+        weights = torch.ones(len(curriculum_segments), device=device)
+    return weights
 
 
 def randomize_rigid_body_mass_inertia(

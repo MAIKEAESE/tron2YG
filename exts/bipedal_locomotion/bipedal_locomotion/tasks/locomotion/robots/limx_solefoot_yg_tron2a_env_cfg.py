@@ -252,6 +252,37 @@ def _use_tron_camp_curriculum_resets(self):
             {"name": "stairs_entry", "x_range": (24.0, 39.0), "weight": 0.18},
             {"name": "platform_entry", "x_range": (42.0, 58.0), "weight": 0.06},
         ),
+        # RSL-RL uses 24 rollout steps per iteration for this task.  The schedule
+        # ramps terrain exposure instead of hard-switching reset distributions.
+        "phase_schedule": (
+            {
+                "step": 0,
+                "weights": {
+                    "start_flat": 0.80,
+                    "up_ramp_entry": 0.10,
+                    "downhill_exit": 0.10,
+                },
+            },
+            {
+                "step": 300 * 24,
+                "weights": {
+                    "start_flat": 0.30,
+                    "up_ramp_entry": 0.10,
+                    "downhill_exit": 0.10,
+                    "bumps_entry": 0.50,
+                },
+            },
+            {
+                "step": 700 * 24,
+                "weights": {
+                    "start_flat": 0.20,
+                    "up_ramp_entry": 0.05,
+                    "downhill_exit": 0.05,
+                    "bumps_entry": 0.30,
+                    "stairs_entry": 0.40,
+                },
+            },
+        ),
     }
 
 
