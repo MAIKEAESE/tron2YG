@@ -653,6 +653,28 @@ def swing_knee_flexion_reward(
     return torch.where(single_stance, reward, torch.zeros_like(reward))
 
 
+def stance_knee_extension_reward(
+    env: ManagerBasedRLEnv,
+    sensor_cfg: SceneEntityCfg,
+    asset_cfg: SceneEntityCfg,
+    std: float = 0.16,
+    threshold: float = 1.0,
+) -> torch.Tensor:
+    """Reward the contact-side knee staying extended enough to support swing-leg motion."""
+    contact_sensor: ContactSensor = env.scene.sensors[sensor_cfg.name]
+    contacts = (
+        contact_sensor.data.net_forces_w_history[:, :, sensor_cfg.body_ids, :].norm(dim=-1).max(dim=1)[0] > threshold
+    )
+    single_stance = torch.sum(contacts.int(), dim=1) == 1
+    stance_mask = contacts & single_stance.unsqueeze(-1)
+
+    asset: Articulation = env.scene[asset_cfg.name]
+    knee_delta = asset.data.joint_pos[:, asset_cfg.joint_ids] - asset.data.default_joint_pos[:, asset_cfg.joint_ids]
+    stance_flexion = torch.sum(torch.abs(knee_delta) * stance_mask.float(), dim=1)
+    reward = torch.exp(-torch.square(stance_flexion) / std**2)
+    return torch.where(single_stance, reward, torch.zeros_like(reward))
+
+
 def double_stance_feet_x_alignment_reward(
     env: ManagerBasedRLEnv,
     sensor_cfg: SceneEntityCfg,

@@ -98,7 +98,7 @@ def _use_perceptive_stair_clearance(self):
     self.rewards.single_stance.weight = 0.65
     self.rewards.swing_foot_clearance = RewTerm(
         func=mdp.terrain_adaptive_swing_foot_clearance_reward,
-        weight=1.50,
+        weight=1.30,
         params={
             "sensor_cfg": SceneEntityCfg("contact_forces", body_names="ankle_pitch_.*"),
             "asset_cfg": SceneEntityCfg("robot", body_names="ankle_pitch_.*"),
@@ -112,14 +112,14 @@ def _use_perceptive_stair_clearance(self):
             "obstacle_threshold": 0.025,
         },
     )
-    self.rewards.double_flight.weight = -3.2
+    self.rewards.double_flight.weight = -3.8
     self.rewards.same_feet_x_position.weight = -0.004
     self.rewards.single_stance_feet_x_separation.weight = 0.0
     self.rewards.single_stance_feet_x_separation.params["target_distance"] = 0.23
     self.rewards.single_stance_feet_x_separation.params["std"] = 0.10
     self.rewards.stance_foot_stability = RewTerm(
         func=mdp.stance_foot_stability_reward,
-        weight=0.50,
+        weight=0.75,
         params={
             "sensor_cfg": SceneEntityCfg("contact_forces", body_names="ankle_pitch_.*"),
             "asset_cfg": SceneEntityCfg("robot", body_names="ankle_pitch_.*"),
@@ -138,12 +138,21 @@ def _use_perceptive_stair_clearance(self):
     )
     self.rewards.swing_knee_flexion = RewTerm(
         func=mdp.swing_knee_flexion_reward,
-        weight=0.35,
+        weight=0.22,
         params={
             "sensor_cfg": SceneEntityCfg("contact_forces", body_names="ankle_pitch_.*"),
             "asset_cfg": SceneEntityCfg("robot", joint_names="knee_[LR]_Joint"),
-            "target_flexion": 0.35,
+            "target_flexion": 0.30,
             "std": 0.20,
+        },
+    )
+    self.rewards.stance_knee_extension = RewTerm(
+        func=mdp.stance_knee_extension_reward,
+        weight=0.55,
+        params={
+            "sensor_cfg": SceneEntityCfg("contact_forces", body_names="ankle_pitch_.*"),
+            "asset_cfg": SceneEntityCfg("robot", joint_names="knee_[LR]_Joint"),
+            "std": 0.16,
         },
     )
 
@@ -269,8 +278,8 @@ def _use_gait_stabilization_rewards(self):
     self.rewards.track_ang_vel_z_exp.weight = 4.0
     self.rewards.track_ang_vel_z_exp.params["std"] = 0.20
     self.rewards.keep_balance.weight = 0.1
-    self.rewards.base_height_exp.weight = 0.3
-    self.rewards.flat_orientation_l2.weight = -2.3
+    self.rewards.base_height_exp.weight = 0.45
+    self.rewards.flat_orientation_l2.weight = -2.6
     self.rewards.lin_vel_z_l2.weight = -0.6
     self.rewards.body_lin_acc.weight = -0.003
     self.rewards.gait_reward.weight = 0.45
