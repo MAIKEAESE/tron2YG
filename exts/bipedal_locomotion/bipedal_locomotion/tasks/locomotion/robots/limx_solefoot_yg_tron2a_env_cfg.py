@@ -198,11 +198,11 @@ def _use_gait_stabilization_commands(self):
 
 
 def _use_gait_stabilization_rewards(self):
-    self.rewards.track_lin_vel_x_exp.weight = 3.5
+    self.rewards.track_lin_vel_x_exp.weight = 4.0
     self.rewards.track_lin_vel_x_exp.params["std"] = 0.25
     self.rewards.track_world_lin_vel_x_exp = RewTerm(
         func=mdp.track_world_lin_vel_x_exp,
-        weight=4.0,
+        weight=4.5,
         params={"command_name": "base_velocity", "std": 0.25},
     )
     self.rewards.track_lin_vel_y_exp.weight = 3.5
@@ -219,8 +219,8 @@ def _use_gait_stabilization_rewards(self):
     self.rewards.feet_air_time.weight = 0.0
     self.rewards.feet_slide.weight = -0.24
     self.rewards.feet_ang_slide_penalty.weight = -0.28
-    self.rewards.action_rate_l2.weight = -0.012
-    self.rewards.action_smoothness.weight = -0.00045
+    self.rewards.action_rate_l2.weight = -0.008
+    self.rewards.action_smoothness.weight = -0.00030
     self.rewards.knee_joint_orientation.weight = -0.8
     self.rewards.torques_smoothness_penalty.weight = -3.0e-7
     self.rewards.same_feet_x_position = RewTerm(
@@ -278,7 +278,7 @@ def _use_gait_stabilization_rewards(self):
     )
     self.rewards.forward_speed_shortfall = RewTerm(
         func=mdp.lin_vel_x_shortfall_penalty,
-        weight=-4.0,
+        weight=-8.0,
         params={"command_name": "base_velocity", "deadband": 0.05},
     )
     self.rewards.forward_overspeed = RewTerm(
