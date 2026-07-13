@@ -114,7 +114,7 @@ def _use_perceptive_stair_clearance(self):
             "max_tilt": 0.55,
         },
     )
-    self.rewards.double_flight.weight = -3.8
+    self.rewards.double_flight.weight = -1.5
     self.rewards.same_feet_x_position.weight = -0.004
     self.rewards.single_stance_feet_x_separation.weight = 0.0
     self.rewards.single_stance_feet_x_separation.params["target_distance"] = 0.23
@@ -314,7 +314,7 @@ def _use_gait_stabilization_rewards(self):
     self.rewards.track_ang_vel_z_exp.params["std"] = 0.20
     self.rewards.keep_balance.weight = 0.1
     self.rewards.base_height_exp.weight = 0.45
-    self.rewards.flat_orientation_l2.weight = -2.6
+    self.rewards.flat_orientation_l2.weight = -0.8
     self.rewards.lin_vel_z_l2.weight = -0.6
     self.rewards.body_lin_acc.weight = -0.003
     self.rewards.gait_reward.weight = 0.45
@@ -333,7 +333,7 @@ def _use_gait_stabilization_rewards(self):
     )
     self.rewards.centerline_y = RewTerm(
         func=mdp.track_centerline_y,
-        weight=8.5,
+        weight=4.0,
         params={"std": 0.22},
     )
     self.rewards.heading_alignment = RewTerm(
@@ -352,8 +352,8 @@ def _use_gait_stabilization_rewards(self):
     )
     self.rewards.world_pos_y_abs = RewTerm(
         func=mdp.world_pos_y_deadband,
-        weight=-9.0,
-        params={"deadband": 0.06},
+        weight=-4.0,
+        params={"deadband": 0.15},
     )
     self.rewards.predicted_path_lateral_error = RewTerm(
         func=mdp.predicted_path_lateral_error,
@@ -381,7 +381,7 @@ def _use_gait_stabilization_rewards(self):
     )
     self.rewards.forward_speed_shortfall = RewTerm(
         func=mdp.lin_vel_x_shortfall_penalty,
-        weight=-8.0,
+        weight=-4.0,
         params={"command_name": "base_velocity", "deadband": 0.05},
     )
     self.rewards.forward_overspeed = RewTerm(
