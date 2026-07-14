@@ -523,6 +523,31 @@ def swing_foot_clearance_reward(
     return torch.where(single_stance, reward, torch.zeros_like(reward))
 
 
+def swing_foot_liftoff_reward(
+    env: ManagerBasedRLEnv,
+    sensor_cfg: SceneEntityCfg,
+    asset_cfg: SceneEntityCfg,
+    min_liftoff: float = 0.025,
+    max_liftoff: float = 0.08,
+    max_tilt: float = 0.50,
+    threshold: float = 1.0,
+) -> torch.Tensor:
+    """Reward modest swing-foot liftoff before asking for high obstacle clearance."""
+    contact_sensor: ContactSensor = env.scene.sensors[sensor_cfg.name]
+    contacts = (
+        contact_sensor.data.net_forces_w_history[:, :, sensor_cfg.body_ids, :].norm(dim=-1).max(dim=1)[0] > threshold
+    )
+    single_stance = torch.sum(contacts.int(), dim=1) == 1
+
+    asset: RigidObject | Articulation = env.scene[asset_cfg.name]
+    foot_z = asset.data.body_pos_w[:, asset_cfg.body_ids, 2]
+    liftoff = torch.max(foot_z, dim=1)[0] - torch.min(foot_z, dim=1)[0]
+    in_band = (liftoff > min_liftoff) & (liftoff < max_liftoff)
+    tilt = torch.norm(asset.data.projected_gravity_b[:, :2], dim=1)
+    balanced = tilt < max_tilt
+    return torch.where(single_stance & balanced & in_band, torch.ones_like(liftoff), torch.zeros_like(liftoff))
+
+
 def terrain_adaptive_swing_foot_clearance_reward(
     env: ManagerBasedRLEnv,
     sensor_cfg: SceneEntityCfg,
