@@ -647,6 +647,95 @@ def terrain_adaptive_swing_foot_clearance_reward(
     return torch.where(valid, reward, torch.zeros_like(reward))
 
 
+def obstacle_forward_swing_reward(
+    env: ManagerBasedRLEnv,
+    sensor_cfg: SceneEntityCfg,
+    asset_cfg: SceneEntityCfg,
+    ray_sensor_cfg: SceneEntityCfg,
+    non_foot_sensor_cfg: SceneEntityCfg | None = None,
+    obstacle_threshold: float = 0.06,
+    front_min_x: float = 0.15,
+    near_abs_x: float = 0.25,
+    target_forward_delta: float = 0.14,
+    forward_std: float = 0.08,
+    min_forward_delta: float = 0.03,
+    liftoff_margin: float = 0.02,
+    min_liftoff: float = 0.05,
+    max_liftoff: float = 0.12,
+    liftoff_std: float = 0.06,
+    max_stance_foot_speed: float = 0.08,
+    max_tilt: float = 0.50,
+    max_yaw: float = 0.35,
+    contact_threshold: float = 1.0,
+    non_foot_threshold: float = 5.0,
+) -> torch.Tensor:
+    """Reward forward swing motion only when an obstacle is ahead and support is stable."""
+    contact_sensor: ContactSensor = env.scene.sensors[sensor_cfg.name]
+    contacts = (
+        contact_sensor.data.net_forces_w_history[:, :, sensor_cfg.body_ids, :].norm(dim=-1).max(dim=1)[0]
+        > contact_threshold
+    )
+    single_stance = torch.sum(contacts.int(), dim=1) == 1
+    swing_mask = (~contacts) & single_stance.unsqueeze(-1)
+    stance_mask = contacts & single_stance.unsqueeze(-1)
+
+    asset: RigidObject | Articulation = env.scene[asset_cfg.name]
+    feet_pos_w = asset.data.body_link_pos_w[:, asset_cfg.body_ids]
+    base_quat = asset.data.root_link_quat_w.unsqueeze(1).expand(-1, feet_pos_w.shape[1], -1)
+    base_pos = asset.data.root_link_state_w[:, :3].unsqueeze(1).expand(-1, feet_pos_w.shape[1], -1)
+    feet_pos_b = math_utils.quat_apply_inverse(base_quat, feet_pos_w - base_pos)
+
+    swing_x = torch.sum(feet_pos_b[:, :, 0] * swing_mask.float(), dim=1)
+    stance_x = torch.sum(feet_pos_b[:, :, 0] * stance_mask.float(), dim=1)
+    forward_delta = swing_x - stance_x
+
+    foot_z = asset.data.body_pos_w[:, asset_cfg.body_ids, 2]
+    liftoff = torch.max(foot_z, dim=1)[0] - torch.min(foot_z, dim=1)[0]
+    foot_speed_xy = torch.norm(asset.data.body_lin_vel_w[:, asset_cfg.body_ids, :2], dim=-1)
+    stance_count = torch.sum(contacts.float(), dim=1).clamp(min=1.0)
+    stance_speed = torch.sum(foot_speed_xy * contacts.float(), dim=1) / stance_count
+
+    ray_sensor: RayCaster = env.scene[ray_sensor_cfg.name]
+    ray_hits = ray_sensor.data.ray_hits_w
+    valid_hits = torch.isfinite(ray_hits).all(dim=-1)
+    yaw_frame = math_utils.yaw_quat(asset.data.root_quat_w).unsqueeze(1).expand(-1, ray_hits.shape[1], -1)
+    rel_hits = math_utils.quat_apply_inverse(yaw_frame, ray_hits - asset.data.root_pos_w.unsqueeze(1))
+    rel_x = rel_hits[..., 0]
+
+    front_mask = valid_hits & (rel_x > front_min_x)
+    near_mask = valid_hits & (torch.abs(rel_x) < near_abs_x)
+    low = torch.full_like(ray_hits[..., 2], -1.0e6)
+    front_z = torch.max(torch.where(front_mask, ray_hits[..., 2], low), dim=1)[0]
+    near_count = torch.sum(near_mask.float(), dim=1).clamp(min=1.0)
+    near_z = torch.sum(torch.where(near_mask, ray_hits[..., 2], torch.zeros_like(ray_hits[..., 2])), dim=1) / near_count
+    obstacle_height = torch.clamp(front_z - near_z, min=0.0)
+
+    target_liftoff = torch.clamp(obstacle_height + float(liftoff_margin), min=float(min_liftoff), max=float(max_liftoff))
+    forward_reward = torch.exp(-torch.square(forward_delta - target_forward_delta) / forward_std**2)
+    liftoff_reward = torch.exp(-torch.square(liftoff - target_liftoff) / liftoff_std**2)
+
+    tilt = torch.norm(asset.data.projected_gravity_b[:, :2], dim=1)
+    _, _, yaw = math_utils.euler_xyz_from_quat(asset.data.root_quat_w)
+    non_foot_clear = torch.ones(env.num_envs, dtype=torch.bool, device=env.device)
+    non_foot_body_ids = getattr(non_foot_sensor_cfg, "body_ids", None) if non_foot_sensor_cfg is not None else None
+    if non_foot_body_ids is not None and len(non_foot_body_ids) > 0:
+        non_foot_forces = contact_sensor.data.net_forces_w_history[:, :, non_foot_sensor_cfg.body_ids, :]
+        non_foot_contact = non_foot_forces.norm(dim=-1).max(dim=1)[0].max(dim=1)[0] > non_foot_threshold
+        non_foot_clear = ~non_foot_contact
+
+    valid = (
+        single_stance
+        & (obstacle_height > obstacle_threshold)
+        & (forward_delta > min_forward_delta)
+        & (stance_speed < max_stance_foot_speed)
+        & (tilt < max_tilt)
+        & (torch.abs(normalize_angle(yaw)) < max_yaw)
+        & non_foot_clear
+    )
+    reward = forward_reward * liftoff_reward
+    return torch.where(valid, reward, torch.zeros_like(reward))
+
+
 def stance_foot_stability_reward(
     env: ManagerBasedRLEnv,
     sensor_cfg: SceneEntityCfg,
