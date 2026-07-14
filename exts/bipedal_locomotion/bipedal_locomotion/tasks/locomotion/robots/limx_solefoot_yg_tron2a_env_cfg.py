@@ -119,9 +119,9 @@ def _use_perceptive_stair_clearance(self):
             "max_stance_foot_speed": 0.28,
             # Observed obstacle height -> absolute swing-clearance target.
             "height_bands": (
-                (0.025, 0.13),
-                (0.080, 0.20),
-                (0.140, 0.29),
+                (0.025, 0.09),
+                (0.080, 0.16),
+                (0.140, 0.25),
             ),
         },
     )
@@ -132,7 +132,10 @@ def _use_perceptive_stair_clearance(self):
             "sensor_cfg": SceneEntityCfg("contact_forces", body_names="ankle_pitch_.*"),
             "asset_cfg": SceneEntityCfg("robot", body_names="ankle_pitch_.*"),
             "min_liftoff": 0.025,
+            "target_liftoff": 0.055,
             "max_liftoff": 0.08,
+            "std": 0.025,
+            "max_lateral_abs_y": 0.18,
             "max_tilt": 0.50,
         },
     )
@@ -153,7 +156,7 @@ def _use_perceptive_stair_clearance(self):
     )
     self.rewards.swing_foot_lateral_deviation = RewTerm(
         func=mdp.swing_foot_lateral_deviation,
-        weight=-0.75,
+        weight=-1.00,
         params={
             "sensor_cfg": SceneEntityCfg("contact_forces", body_names="ankle_pitch_.*"),
             "asset_cfg": SceneEntityCfg("robot", body_names="ankle_pitch_.*"),

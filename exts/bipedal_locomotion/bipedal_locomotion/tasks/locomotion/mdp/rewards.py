@@ -528,11 +528,14 @@ def swing_foot_liftoff_reward(
     sensor_cfg: SceneEntityCfg,
     asset_cfg: SceneEntityCfg,
     min_liftoff: float = 0.025,
+    target_liftoff: float = 0.055,
     max_liftoff: float = 0.08,
+    std: float = 0.025,
+    max_lateral_abs_y: float = 0.18,
     max_tilt: float = 0.50,
     threshold: float = 1.0,
 ) -> torch.Tensor:
-    """Reward modest swing-foot liftoff before asking for high obstacle clearance."""
+    """Reward modest, body-aligned swing-foot liftoff before high obstacle clearance."""
     contact_sensor: ContactSensor = env.scene.sensors[sensor_cfg.name]
     contacts = (
         contact_sensor.data.net_forces_w_history[:, :, sensor_cfg.body_ids, :].norm(dim=-1).max(dim=1)[0] > threshold
@@ -542,10 +545,20 @@ def swing_foot_liftoff_reward(
     asset: RigidObject | Articulation = env.scene[asset_cfg.name]
     foot_z = asset.data.body_pos_w[:, asset_cfg.body_ids, 2]
     liftoff = torch.max(foot_z, dim=1)[0] - torch.min(foot_z, dim=1)[0]
-    in_band = (liftoff > min_liftoff) & (liftoff < max_liftoff)
+    swing_mask = (~contacts) & single_stance.unsqueeze(-1)
+    feet_pos_w = asset.data.body_link_pos_w[:, asset_cfg.body_ids]
+    base_quat = asset.data.root_link_quat_w.unsqueeze(1).expand(-1, feet_pos_w.shape[1], -1)
+    base_pos = asset.data.root_link_state_w[:, :3].unsqueeze(1).expand(-1, feet_pos_w.shape[1], -1)
+    feet_pos_b = math_utils.quat_apply_inverse(base_quat, feet_pos_w - base_pos)
+    swing_abs_y = torch.sum(torch.abs(feet_pos_b[:, :, 1]) * swing_mask.float(), dim=1)
+
+    height_reward = torch.exp(-torch.square(liftoff - target_liftoff) / std**2)
+    valid_liftoff = (liftoff > min_liftoff) & (liftoff < max_liftoff)
+    lateral_reward = torch.exp(-torch.square(swing_abs_y) / max_lateral_abs_y**2)
     tilt = torch.norm(asset.data.projected_gravity_b[:, :2], dim=1)
     balanced = tilt < max_tilt
-    return torch.where(single_stance & balanced & in_band, torch.ones_like(liftoff), torch.zeros_like(liftoff))
+    reward = height_reward * lateral_reward
+    return torch.where(single_stance & balanced & valid_liftoff, reward, torch.zeros_like(reward))
 
 
 def terrain_adaptive_swing_foot_clearance_reward(
