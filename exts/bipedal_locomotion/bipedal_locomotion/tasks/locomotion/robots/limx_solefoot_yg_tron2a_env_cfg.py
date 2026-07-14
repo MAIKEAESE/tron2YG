@@ -100,7 +100,7 @@ def _use_perceptive_stair_clearance(self):
     self.rewards.single_stance.weight = 0.65
     self.rewards.swing_foot_clearance = RewTerm(
         func=mdp.terrain_adaptive_swing_foot_clearance_reward,
-        weight=0.65,
+        weight=0.80,
         params={
             "sensor_cfg": SceneEntityCfg("contact_forces", body_names="ankle_pitch_.*"),
             "asset_cfg": SceneEntityCfg("robot", body_names="ankle_pitch_.*"),
@@ -127,7 +127,7 @@ def _use_perceptive_stair_clearance(self):
     )
     self.rewards.swing_foot_liftoff = RewTerm(
         func=mdp.swing_foot_liftoff_reward,
-        weight=0.35,
+        weight=0.40,
         params={
             "sensor_cfg": SceneEntityCfg("contact_forces", body_names="ankle_pitch_.*"),
             "asset_cfg": SceneEntityCfg("robot", body_names="ankle_pitch_.*"),
@@ -139,7 +139,7 @@ def _use_perceptive_stair_clearance(self):
             "max_tilt": 0.50,
         },
     )
-    self.rewards.double_flight.weight = -3.6
+    self.rewards.double_flight.weight = -2.8
     self.rewards.same_feet_x_position.weight = -0.004
     self.rewards.single_stance_feet_x_separation.weight = 0.05
     self.rewards.single_stance_feet_x_separation.params["target_distance"] = 0.16
@@ -454,7 +454,7 @@ def _use_gait_stabilization_rewards(self):
     )
     self.rewards.forward_speed_shortfall = RewTerm(
         func=mdp.lin_vel_x_shortfall_penalty,
-        weight=-4.0,
+        weight=-3.2,
         params={"command_name": "base_velocity", "deadband": 0.05},
     )
     self.rewards.forward_overspeed = RewTerm(
