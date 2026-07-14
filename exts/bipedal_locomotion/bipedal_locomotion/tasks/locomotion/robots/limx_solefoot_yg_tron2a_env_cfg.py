@@ -97,7 +97,7 @@ def _use_perceptive_stair_clearance(self):
     self.commands.base_velocity.rel_standing_envs = 0.10
     self.commands.base_velocity.ranges.lin_vel_x = (0.25, 0.70)
     self.commands.gait_command.ranges.swing_height = (0.15, 0.24)
-    self.rewards.single_stance.weight = 0.45
+    self.rewards.single_stance.weight = 0.65
     self.rewards.swing_foot_clearance = RewTerm(
         func=mdp.terrain_adaptive_swing_foot_clearance_reward,
         weight=0.70,
@@ -119,17 +119,17 @@ def _use_perceptive_stair_clearance(self):
             "max_stance_foot_speed": 0.28,
             # Observed obstacle height -> absolute swing-clearance target.
             "height_bands": (
-                (0.025, 0.18),
-                (0.080, 0.25),
-                (0.140, 0.33),
+                (0.025, 0.13),
+                (0.080, 0.20),
+                (0.140, 0.29),
             ),
         },
     )
-    self.rewards.double_flight.weight = -2.0
+    self.rewards.double_flight.weight = -2.8
     self.rewards.same_feet_x_position.weight = -0.004
-    self.rewards.single_stance_feet_x_separation.weight = 0.0
-    self.rewards.single_stance_feet_x_separation.params["target_distance"] = 0.23
-    self.rewards.single_stance_feet_x_separation.params["std"] = 0.10
+    self.rewards.single_stance_feet_x_separation.weight = 0.05
+    self.rewards.single_stance_feet_x_separation.params["target_distance"] = 0.16
+    self.rewards.single_stance_feet_x_separation.params["std"] = 0.12
     self.rewards.stance_foot_stability = RewTerm(
         func=mdp.stance_foot_stability_reward,
         weight=1.15,
