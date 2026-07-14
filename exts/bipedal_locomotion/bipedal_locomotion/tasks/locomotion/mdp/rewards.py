@@ -654,6 +654,7 @@ def obstacle_forward_swing_reward(
     ray_sensor_cfg: SceneEntityCfg,
     non_foot_sensor_cfg: SceneEntityCfg | None = None,
     obstacle_threshold: float = 0.06,
+    max_obstacle_height: float | None = None,
     front_min_x: float = 0.15,
     near_abs_x: float = 0.25,
     target_forward_delta: float = 0.14,
@@ -726,6 +727,11 @@ def obstacle_forward_swing_reward(
     valid = (
         single_stance
         & (obstacle_height > obstacle_threshold)
+        & (
+            torch.ones_like(obstacle_height, dtype=torch.bool)
+            if max_obstacle_height is None
+            else obstacle_height < float(max_obstacle_height)
+        )
         & (forward_delta > min_forward_delta)
         & (stance_speed < max_stance_foot_speed)
         & (tilt < max_tilt)
