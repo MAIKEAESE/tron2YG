@@ -105,13 +105,19 @@ def _use_perceptive_stair_clearance(self):
             "ray_sensor_cfg": SceneEntityCfg("height_scanner"),
             "base_height": 0.16,
             "obstacle_margin": 0.10,
-            "max_target_height": 0.34,
+            "max_target_height": 0.36,
             "std": 0.06,
             "front_min_x": 0.15,
             "near_abs_x": 0.25,
             "obstacle_threshold": 0.025,
             "min_forward_speed": 0.30,
             "max_tilt": 0.55,
+            # Observed obstacle height -> absolute swing-clearance target.
+            "height_bands": (
+                (0.025, 0.18),
+                (0.080, 0.25),
+                (0.140, 0.33),
+            ),
         },
     )
     self.rewards.double_flight.weight = -1.5
@@ -252,8 +258,9 @@ def _use_tron_camp_curriculum_resets(self):
             {"name": "stairs_entry", "x_range": (24.0, 39.0), "weight": 0.18},
             {"name": "platform_entry", "x_range": (42.0, 58.0), "weight": 0.06},
         ),
-        # RSL-RL uses 24 rollout steps per iteration for this task.  The schedule
-        # ramps terrain exposure instead of hard-switching reset distributions.
+        # RSL-RL uses 24 rollout steps per iteration for this task. The schedule
+        # interpolates from low-height terrain to higher obstacles instead of
+        # hard-switching reset distributions.
         "phase_schedule": (
             {
                 "step": 0,
@@ -266,20 +273,31 @@ def _use_tron_camp_curriculum_resets(self):
             {
                 "step": 300 * 24,
                 "weights": {
-                    "start_flat": 0.30,
+                    "start_flat": 0.35,
+                    "up_ramp_entry": 0.12,
+                    "downhill_exit": 0.10,
+                    "bumps_entry": 0.43,
+                },
+            },
+            {
+                "step": 500 * 24,
+                "weights": {
+                    "start_flat": 0.25,
                     "up_ramp_entry": 0.10,
                     "downhill_exit": 0.10,
-                    "bumps_entry": 0.50,
+                    "bumps_entry": 0.40,
+                    "stairs_entry": 0.15,
                 },
             },
             {
                 "step": 700 * 24,
                 "weights": {
-                    "start_flat": 0.20,
+                    "start_flat": 0.18,
                     "up_ramp_entry": 0.05,
                     "downhill_exit": 0.05,
-                    "bumps_entry": 0.30,
-                    "stairs_entry": 0.40,
+                    "bumps_entry": 0.25,
+                    "stairs_entry": 0.35,
+                    "platform_entry": 0.12,
                 },
             },
         ),

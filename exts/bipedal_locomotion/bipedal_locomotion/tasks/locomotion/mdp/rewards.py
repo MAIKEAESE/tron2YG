@@ -538,6 +538,7 @@ def terrain_adaptive_swing_foot_clearance_reward(
     min_forward_speed: float = 0.30,
     max_tilt: float = 0.55,
     threshold: float = 1.0,
+    height_bands: tuple[tuple[float, float], ...] | None = None,
 ) -> torch.Tensor:
     """Reward swing-foot clearance only while the policy is still walking and balanced."""
     contact_sensor: ContactSensor = env.scene.sensors[sensor_cfg.name]
@@ -570,12 +571,19 @@ def terrain_adaptive_swing_foot_clearance_reward(
     near_z = torch.sum(torch.where(near_mask, ray_hits[..., 2], torch.zeros_like(ray_hits[..., 2])), dim=1) / near_count
 
     obstacle_height = torch.clamp(front_z - near_z, min=0.0)
-    extra_clearance = torch.where(
-        obstacle_height > obstacle_threshold,
-        obstacle_height + obstacle_margin,
-        torch.zeros_like(obstacle_height),
-    )
-    target_height = torch.clamp(base_height + extra_clearance, max=max_target_height)
+    if height_bands is None:
+        extra_clearance = torch.where(
+            obstacle_height > obstacle_threshold,
+            obstacle_height + obstacle_margin,
+            torch.zeros_like(obstacle_height),
+        )
+        target_height = base_height + extra_clearance
+    else:
+        target_height = torch.full_like(obstacle_height, float(base_height))
+        for min_height, clearance_target in sorted(height_bands, key=lambda band: float(band[0])):
+            band_target = torch.full_like(target_height, float(clearance_target))
+            target_height = torch.where(obstacle_height > float(min_height), band_target, target_height)
+    target_height = torch.clamp(target_height, max=max_target_height)
 
     reward = torch.exp(-torch.square(clearance - target_height) / std**2)
     valid = single_stance & moving_forward & balanced
