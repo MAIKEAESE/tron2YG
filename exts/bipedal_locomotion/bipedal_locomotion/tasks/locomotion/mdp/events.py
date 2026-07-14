@@ -74,6 +74,12 @@ def reset_root_state_tron_camp_curriculum(
     curriculum_segments: tuple[dict, ...],
     z_range: tuple[float, float],
     phase_schedule: tuple[dict, ...] | None = None,
+    adaptive_curriculum: bool = False,
+    adaptive_level_weights: tuple[dict, ...] | None = None,
+    promote_distance: float = 4.0,
+    demote_distance: float = 1.0,
+    max_adaptive_level: int | None = None,
+    randomize_mastered_levels: bool = True,
     y_range: tuple[float, float] = (-0.15, 0.15),
     yaw_range: tuple[float, float] = (-0.08, 0.08),
     velocity_range: dict[str, tuple[float, float]] | None = None,
@@ -100,8 +106,27 @@ def reset_root_state_tron_camp_curriculum(
         env_origin_pos = env_origins[env_ids].to(device)
 
     weights = _resolve_tron_camp_curriculum_weights(env, curriculum_segments, phase_schedule, device)
-    weights = weights / torch.sum(weights)
-    segment_ids = torch.multinomial(weights, num_resets, replacement=True)
+    if adaptive_curriculum:
+        _update_tron_camp_adaptive_levels(
+            env,
+            env_ids,
+            asset,
+            promote_distance=promote_distance,
+            demote_distance=demote_distance,
+            max_level=max_adaptive_level or max(len(adaptive_level_weights or ()) - 1, 0),
+            randomize_mastered_levels=randomize_mastered_levels,
+        )
+        segment_ids = _sample_tron_camp_adaptive_segments(
+            env,
+            env_ids,
+            curriculum_segments,
+            weights,
+            adaptive_level_weights,
+            device,
+        )
+    else:
+        weights = weights / torch.sum(weights)
+        segment_ids = torch.multinomial(weights, num_resets, replacement=True)
 
     x_offsets = torch.zeros(num_resets, device=device)
     for segment_index, segment in enumerate(curriculum_segments):
@@ -131,6 +156,90 @@ def reset_root_state_tron_camp_curriculum(
 
     asset.write_root_pose_to_sim(root_states[:, :7], env_ids=env_ids)
     asset.write_root_velocity_to_sim(root_states[:, 7:], env_ids=env_ids)
+
+    if adaptive_curriculum:
+        _store_tron_camp_reset_start(env, env_ids, root_states[:, :3])
+
+
+def _update_tron_camp_adaptive_levels(
+    env: ManagerBasedEnv,
+    env_ids: torch.Tensor,
+    asset: Articulation,
+    promote_distance: float,
+    demote_distance: float,
+    max_level: int,
+    randomize_mastered_levels: bool,
+):
+    """Update per-env terrain levels from the previous episode's forward progress."""
+    device = asset.device
+    num_envs = env.scene.num_envs
+    if not hasattr(env, "_tron_camp_curriculum_levels"):
+        env._tron_camp_curriculum_levels = torch.zeros(num_envs, dtype=torch.long, device=device)
+        env._tron_camp_has_start = torch.zeros(num_envs, dtype=torch.bool, device=device)
+        env._tron_camp_start_pos_w = torch.zeros((num_envs, 3), device=device)
+        return
+
+    valid = env._tron_camp_has_start[env_ids]
+    if not torch.any(valid):
+        return
+
+    valid_env_ids = env_ids[valid]
+    current_pos = asset.data.root_pos_w[valid_env_ids]
+    start_pos = env._tron_camp_start_pos_w[valid_env_ids]
+    forward_progress = current_pos[:, 0] - start_pos[:, 0]
+
+    levels = env._tron_camp_curriculum_levels[valid_env_ids]
+    promote = forward_progress > float(promote_distance)
+    demote = forward_progress < float(demote_distance)
+
+    levels = torch.where(promote, torch.clamp(levels + 1, max=max_level), levels)
+    levels = torch.where(demote, torch.clamp(levels - 1, min=0), levels)
+
+    if randomize_mastered_levels and max_level > 0:
+        mastered = promote & (levels >= max_level)
+        if torch.any(mastered):
+            levels[mastered] = torch.randint(
+                low=0,
+                high=max_level + 1,
+                size=(int(torch.sum(mastered).item()),),
+                device=device,
+                dtype=levels.dtype,
+            )
+
+    env._tron_camp_curriculum_levels[valid_env_ids] = levels
+
+
+def _sample_tron_camp_adaptive_segments(
+    env: ManagerBasedEnv,
+    env_ids: torch.Tensor,
+    curriculum_segments: tuple[dict, ...],
+    phase_weights: torch.Tensor,
+    adaptive_level_weights: tuple[dict, ...] | None,
+    device: torch.device,
+) -> torch.Tensor:
+    """Sample reset segments with phase weights gated by each env's adaptive level."""
+    if not adaptive_level_weights:
+        phase_weights = phase_weights / torch.sum(phase_weights)
+        return torch.multinomial(phase_weights, len(env_ids), replacement=True)
+
+    segment_names = [str(segment["name"]) for segment in curriculum_segments]
+    level_weight_rows = []
+    for level_weights in adaptive_level_weights:
+        level_weight_rows.append([float(level_weights.get(name, 0.0)) for name in segment_names])
+    level_weight_tensor = torch.tensor(level_weight_rows, device=device)
+
+    levels = env._tron_camp_curriculum_levels[env_ids].clamp(max=level_weight_tensor.shape[0] - 1)
+    per_env_weights = phase_weights.unsqueeze(0) * level_weight_tensor[levels]
+    row_sums = torch.sum(per_env_weights, dim=1, keepdim=True)
+    fallback = phase_weights.unsqueeze(0).expand_as(per_env_weights)
+    per_env_weights = torch.where(row_sums > 0.0, per_env_weights, fallback)
+    per_env_weights = per_env_weights / torch.sum(per_env_weights, dim=1, keepdim=True).clamp(min=1.0e-6)
+    return torch.multinomial(per_env_weights, num_samples=1, replacement=True).squeeze(-1)
+
+
+def _store_tron_camp_reset_start(env: ManagerBasedEnv, env_ids: torch.Tensor, root_pos_w: torch.Tensor):
+    env._tron_camp_start_pos_w[env_ids] = root_pos_w
+    env._tron_camp_has_start[env_ids] = True
 
 
 def _resolve_tron_camp_curriculum_weights(
