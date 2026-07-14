@@ -127,6 +127,12 @@ def reset_root_state_tron_camp_curriculum(
     else:
         weights = weights / torch.sum(weights)
         segment_ids = torch.multinomial(weights, num_resets, replacement=True)
+    env._tron_camp_last_segment_ids = getattr(
+        env,
+        "_tron_camp_last_segment_ids",
+        torch.zeros(env.scene.num_envs, dtype=torch.long, device=device),
+    )
+    env._tron_camp_last_segment_ids[env_ids] = segment_ids
 
     x_offsets = torch.zeros(num_resets, device=device)
     for segment_index, segment in enumerate(curriculum_segments):

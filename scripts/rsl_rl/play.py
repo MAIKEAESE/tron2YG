@@ -106,6 +106,34 @@ def _find_body_id(body_names, candidates):
     return None, None
 
 
+def _find_joint_id(joint_names, candidates):
+    for candidate in candidates:
+        for idx, name in enumerate(joint_names):
+            if name == candidate:
+                return idx, name
+    for candidate in candidates:
+        for idx, name in enumerate(joint_names):
+            if candidate in name:
+                return idx, name
+    return None, None
+
+
+def _csv_float(value):
+    if value is None:
+        return ""
+    if torch.is_tensor(value):
+        value = value.detach().cpu()
+        if value.numel() != 1:
+            return ""
+        value = float(value)
+    try:
+        if math.isnan(float(value)):
+            return ""
+    except TypeError:
+        return ""
+    return float(value)
+
+
 class PoseCsvLogger:
     """Write env-0 heading, hip, and foot diagnostics for video review."""
 
@@ -136,12 +164,36 @@ class PoseCsvLogger:
                 "hip_forward_minus_base_deg",
                 "left_foot_x_b",
                 "left_foot_y_b",
+                "left_foot_z_b",
                 "right_foot_x_b",
                 "right_foot_y_b",
+                "right_foot_z_b",
+                "left_foot_vel_x_b",
+                "left_foot_vel_y_b",
+                "left_foot_vel_z_b",
+                "right_foot_vel_x_b",
+                "right_foot_vel_y_b",
+                "right_foot_vel_z_b",
+                "left_foot_contact",
+                "right_foot_contact",
+                "left_foot_contact_force",
+                "right_foot_contact_force",
                 "foot_x_diff_b",
                 "foot_y_diff_b",
+                "foot_z_diff_b",
                 "foot_x_sum_b",
                 "foot_y_sum_b",
+                "swing_foot_liftoff",
+                "swing_foot_forward_delta_x",
+                "stance_foot_speed_xy",
+                "left_knee_angle",
+                "right_knee_angle",
+                "left_knee_angle_delta",
+                "right_knee_angle_delta",
+                "obstacle_height_front",
+                "terrain_level",
+                "terrain_segment",
+                "non_foot_contact",
             ],
         )
         self.writer.writeheader()
@@ -161,6 +213,9 @@ class PoseCsvLogger:
         )
         self.left_foot_id, self.left_foot_name = _find_body_id(body_names, ["ankle_pitch_L_Link"])
         self.right_foot_id, self.right_foot_name = _find_body_id(body_names, ["ankle_pitch_R_Link"])
+        joint_names = list(getattr(robot, "joint_names", []))
+        self.left_knee_id, self.left_knee_name = _find_joint_id(joint_names, ["knee_L_Joint"])
+        self.right_knee_id, self.right_knee_name = _find_joint_id(joint_names, ["knee_R_Joint"])
         missing = [
             name
             for body_id, name in [
@@ -176,8 +231,104 @@ class PoseCsvLogger:
         print(
             "[INFO] Pose log bodies: "
             f"hip=({self.left_hip_name}, {self.right_hip_name}), "
-            f"foot=({self.left_foot_name}, {self.right_foot_name})"
+            f"foot=({self.left_foot_name}, {self.right_foot_name}), "
+            f"knee=({self.left_knee_name}, {self.right_knee_name})"
         )
+
+    def _foot_contact_metrics(self):
+        sensors = getattr(self.env.unwrapped.scene, "sensors", {})
+        contact_sensor = sensors.get("contact_forces") if hasattr(sensors, "get") else None
+        if contact_sensor is None:
+            return {
+                "left_foot_contact": "",
+                "right_foot_contact": "",
+                "left_foot_contact_force": "",
+                "right_foot_contact_force": "",
+                "non_foot_contact": "",
+            }
+
+        forces = contact_sensor.data.net_forces_w_history[0]
+        force_norms = torch.norm(forces, dim=-1).max(dim=0)[0]
+        sensor_body_names = list(getattr(contact_sensor, "body_names", []))
+        if not sensor_body_names:
+            sensor_body_names = list(getattr(contact_sensor.data, "body_names", []))
+
+        def sensor_body_index(body_name):
+            for idx, name in enumerate(sensor_body_names):
+                if name == body_name:
+                    return idx
+            for idx, name in enumerate(sensor_body_names):
+                if body_name in name or name in body_name:
+                    return idx
+            return None
+
+        left_idx = sensor_body_index(self.left_foot_name)
+        right_idx = sensor_body_index(self.right_foot_name)
+        left_force = force_norms[left_idx] if left_idx is not None else None
+        right_force = force_norms[right_idx] if right_idx is not None else None
+        foot_indices = {idx for idx in (left_idx, right_idx) if idx is not None}
+        non_foot_contact = ""
+        if sensor_body_names and force_norms.numel() == len(sensor_body_names):
+            non_foot_mask = torch.ones_like(force_norms, dtype=torch.bool)
+            for idx in foot_indices:
+                non_foot_mask[idx] = False
+            non_foot_contact = bool(torch.any(force_norms[non_foot_mask] > 1.0).item())
+
+        return {
+            "left_foot_contact": int(bool(left_force is not None and left_force.item() > 1.0)),
+            "right_foot_contact": int(bool(right_force is not None and right_force.item() > 1.0)),
+            "left_foot_contact_force": _csv_float(left_force),
+            "right_foot_contact_force": _csv_float(right_force),
+            "non_foot_contact": int(non_foot_contact) if isinstance(non_foot_contact, bool) else "",
+        }
+
+    def _obstacle_height_front(self, robot):
+        sensors = getattr(self.env.unwrapped.scene, "sensors", {})
+        ray_sensor = sensors.get("height_scanner") if hasattr(sensors, "get") else None
+        if ray_sensor is None:
+            return ""
+        ray_hits = ray_sensor.data.ray_hits_w[0:1]
+        valid_hits = torch.isfinite(ray_hits).all(dim=-1)
+        yaw_frame = math_utils.yaw_quat(robot.data.root_quat_w[0:1]).unsqueeze(1).expand(-1, ray_hits.shape[1], -1)
+        rel_hits = math_utils.quat_apply_inverse(yaw_frame, ray_hits - robot.data.root_pos_w[0:1].unsqueeze(1))
+        rel_x = rel_hits[..., 0]
+        front_mask = valid_hits & (rel_x > 0.15)
+        near_mask = valid_hits & (torch.abs(rel_x) < 0.25)
+        low = torch.full_like(ray_hits[..., 2], -1.0e6)
+        front_z = torch.max(torch.where(front_mask, ray_hits[..., 2], low), dim=1)[0]
+        near_count = torch.sum(near_mask.float(), dim=1).clamp(min=1.0)
+        near_z = torch.sum(torch.where(near_mask, ray_hits[..., 2], torch.zeros_like(ray_hits[..., 2])), dim=1) / near_count
+        obstacle_height = torch.clamp(front_z - near_z, min=0.0)
+        return _csv_float(obstacle_height[0])
+
+    def _terrain_metrics(self):
+        base_env = self.env.unwrapped
+        scene = base_env.scene
+        terrain_level = ""
+        terrain_segment = ""
+        for owner in (base_env, scene):
+            for attr_name in ("_tron_camp_curriculum_levels", "terrain_levels", "terrain_level"):
+                value = getattr(owner, attr_name, None)
+                if value is not None:
+                    try:
+                        terrain_level = int(value[0].detach().cpu()) if torch.is_tensor(value) else int(value[0])
+                    except (TypeError, IndexError, ValueError):
+                        terrain_level = ""
+                    break
+            if terrain_level != "":
+                break
+        for owner in (base_env, scene):
+            for attr_name in ("_tron_camp_last_segment_ids", "terrain_segments", "terrain_segment", "terrain_types"):
+                value = getattr(owner, attr_name, None)
+                if value is not None:
+                    try:
+                        terrain_segment = int(value[0].detach().cpu()) if torch.is_tensor(value) else int(value[0])
+                    except (TypeError, IndexError, ValueError):
+                        terrain_segment = ""
+                    break
+            if terrain_segment != "":
+                break
+        return terrain_level, terrain_segment
 
     def record(self):
         self.step += 1
@@ -210,11 +361,31 @@ class PoseCsvLogger:
         base_quat = robot.data.root_link_quat_w[:, None, :].expand(-1, 2, -1)
         base_pos = robot.data.root_link_state_w[:, None, :3].expand(-1, 2, -1)
         feet_pos_b = math_utils.quat_apply_inverse(base_quat, robot.data.body_link_pos_w[:, foot_ids] - base_pos)[0]
+        feet_vel_b = math_utils.quat_apply_inverse(base_quat, robot.data.body_lin_vel_w[:, foot_ids])[0]
         left_foot_b = feet_pos_b[0].detach().cpu()
         right_foot_b = feet_pos_b[1].detach().cpu()
+        left_foot_vel_b = feet_vel_b[0].detach().cpu()
+        right_foot_vel_b = feet_vel_b[1].detach().cpu()
+        contact_metrics = self._foot_contact_metrics()
+        left_contact = contact_metrics["left_foot_contact"] == 1
+        right_contact = contact_metrics["right_foot_contact"] == 1
+        liftoff = abs(float(left_foot_b[2] - right_foot_b[2]))
+        if left_contact and not right_contact:
+            swing_forward_delta_x = float(right_foot_b[0] - left_foot_b[0])
+            stance_speed_xy = math.hypot(float(left_foot_vel_b[0]), float(left_foot_vel_b[1]))
+        elif right_contact and not left_contact:
+            swing_forward_delta_x = float(left_foot_b[0] - right_foot_b[0])
+            stance_speed_xy = math.hypot(float(right_foot_vel_b[0]), float(right_foot_vel_b[1]))
+        else:
+            swing_forward_delta_x = ""
+            stance_speed_xy = ""
+        left_knee = robot.data.joint_pos[0, self.left_knee_id] if self.left_knee_id is not None else None
+        right_knee = robot.data.joint_pos[0, self.right_knee_id] if self.right_knee_id is not None else None
+        left_knee_default = robot.data.default_joint_pos[0, self.left_knee_id] if self.left_knee_id is not None else None
+        right_knee_default = robot.data.default_joint_pos[0, self.right_knee_id] if self.right_knee_id is not None else None
+        terrain_level, terrain_segment = self._terrain_metrics()
 
-        self.writer.writerow(
-            {
+        row = {
                 "step": self.step,
                 "root_x": float(root_pos[0].cpu()),
                 "root_y": float(root_pos[1].cpu()),
@@ -235,14 +406,38 @@ class PoseCsvLogger:
                 "hip_forward_minus_base_deg": math.degrees(_angle_diff_rad(hip_forward_yaw, base_yaw)),
                 "left_foot_x_b": float(left_foot_b[0]),
                 "left_foot_y_b": float(left_foot_b[1]),
+                "left_foot_z_b": float(left_foot_b[2]),
                 "right_foot_x_b": float(right_foot_b[0]),
                 "right_foot_y_b": float(right_foot_b[1]),
+                "right_foot_z_b": float(right_foot_b[2]),
+                "left_foot_vel_x_b": float(left_foot_vel_b[0]),
+                "left_foot_vel_y_b": float(left_foot_vel_b[1]),
+                "left_foot_vel_z_b": float(left_foot_vel_b[2]),
+                "right_foot_vel_x_b": float(right_foot_vel_b[0]),
+                "right_foot_vel_y_b": float(right_foot_vel_b[1]),
+                "right_foot_vel_z_b": float(right_foot_vel_b[2]),
                 "foot_x_diff_b": float(left_foot_b[0] - right_foot_b[0]),
                 "foot_y_diff_b": float(left_foot_b[1] - right_foot_b[1]),
+                "foot_z_diff_b": float(left_foot_b[2] - right_foot_b[2]),
                 "foot_x_sum_b": float(left_foot_b[0] + right_foot_b[0]),
                 "foot_y_sum_b": float(left_foot_b[1] + right_foot_b[1]),
+                "swing_foot_liftoff": liftoff,
+                "swing_foot_forward_delta_x": swing_forward_delta_x,
+                "stance_foot_speed_xy": stance_speed_xy,
+                "left_knee_angle": _csv_float(left_knee),
+                "right_knee_angle": _csv_float(right_knee),
+                "left_knee_angle_delta": _csv_float(left_knee - left_knee_default)
+                if left_knee is not None and left_knee_default is not None
+                else "",
+                "right_knee_angle_delta": _csv_float(right_knee - right_knee_default)
+                if right_knee is not None and right_knee_default is not None
+                else "",
+                "obstacle_height_front": self._obstacle_height_front(robot),
+                "terrain_level": terrain_level,
+                "terrain_segment": terrain_segment,
             }
-        )
+        row.update(contact_metrics)
+        self.writer.writerow(row)
         self.file.flush()
 
     def close(self):
