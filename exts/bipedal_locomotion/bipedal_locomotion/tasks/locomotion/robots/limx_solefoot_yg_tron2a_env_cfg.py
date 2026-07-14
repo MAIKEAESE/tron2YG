@@ -100,7 +100,7 @@ def _use_perceptive_stair_clearance(self):
     self.rewards.single_stance.weight = 0.45
     self.rewards.swing_foot_clearance = RewTerm(
         func=mdp.terrain_adaptive_swing_foot_clearance_reward,
-        weight=0.55,
+        weight=0.70,
         params={
             "sensor_cfg": SceneEntityCfg("contact_forces", body_names="ankle_pitch_.*"),
             "asset_cfg": SceneEntityCfg("robot", body_names="ankle_pitch_.*"),
@@ -113,10 +113,10 @@ def _use_perceptive_stair_clearance(self):
             "near_abs_x": 0.25,
             "obstacle_threshold": 0.025,
             "min_forward_speed": 0.30,
-            "max_tilt": 0.45,
+            "max_tilt": 0.50,
             "allow_obstacle_stationary": True,
-            "min_base_clearance": 0.66,
-            "max_stance_foot_speed": 0.20,
+            "min_base_clearance": 0.62,
+            "max_stance_foot_speed": 0.28,
             # Observed obstacle height -> absolute swing-clearance target.
             "height_bands": (
                 (0.025, 0.18),
