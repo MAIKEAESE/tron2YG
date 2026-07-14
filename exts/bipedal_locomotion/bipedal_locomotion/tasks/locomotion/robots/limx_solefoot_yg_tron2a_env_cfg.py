@@ -95,6 +95,7 @@ def _use_policy_height_scan(self):
 
 def _use_perceptive_stair_clearance(self):
     self.commands.base_velocity.rel_standing_envs = 0.10
+    self.commands.base_velocity.ranges.lin_vel_x = (0.25, 0.70)
     self.commands.gait_command.ranges.swing_height = (0.15, 0.24)
     self.rewards.single_stance.weight = 0.45
     self.rewards.swing_foot_clearance = RewTerm(
@@ -112,8 +113,10 @@ def _use_perceptive_stair_clearance(self):
             "near_abs_x": 0.25,
             "obstacle_threshold": 0.025,
             "min_forward_speed": 0.30,
-            "max_tilt": 0.55,
+            "max_tilt": 0.45,
             "allow_obstacle_stationary": True,
+            "min_base_clearance": 0.66,
+            "max_stance_foot_speed": 0.20,
             # Observed obstacle height -> absolute swing-clearance target.
             "height_bands": (
                 (0.025, 0.18),

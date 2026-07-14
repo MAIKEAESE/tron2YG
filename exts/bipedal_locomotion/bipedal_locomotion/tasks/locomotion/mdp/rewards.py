@@ -540,6 +540,8 @@ def terrain_adaptive_swing_foot_clearance_reward(
     threshold: float = 1.0,
     height_bands: tuple[tuple[float, float], ...] | None = None,
     allow_obstacle_stationary: bool = False,
+    min_base_clearance: float | None = None,
+    max_stance_foot_speed: float | None = None,
 ) -> torch.Tensor:
     """Reward swing-foot clearance only while the policy is still walking and balanced."""
     contact_sensor: ContactSensor = env.scene.sensors[sensor_cfg.name]
@@ -554,6 +556,9 @@ def terrain_adaptive_swing_foot_clearance_reward(
     moving_forward = asset.data.root_lin_vel_w[:, 0] > min_forward_speed
     tilt = torch.norm(asset.data.projected_gravity_b[:, :2], dim=1)
     balanced = tilt < max_tilt
+    foot_speed_xy = torch.norm(asset.data.body_lin_vel_w[:, asset_cfg.body_ids, :2], dim=-1)
+    stance_count = torch.sum(contacts.float(), dim=1).clamp(min=1.0)
+    stance_speed = torch.sum(foot_speed_xy * contacts.float(), dim=1) / stance_count
 
     ray_sensor: RayCaster = env.scene[ray_sensor_cfg.name]
     ray_hits = ray_sensor.data.ray_hits_w
@@ -589,7 +594,18 @@ def terrain_adaptive_swing_foot_clearance_reward(
     reward = torch.exp(-torch.square(clearance - target_height) / std**2)
     obstacle_ahead = obstacle_height > obstacle_threshold
     speed_gate = moving_forward | (allow_obstacle_stationary & obstacle_ahead)
-    valid = single_stance & speed_gate & balanced
+    base_clearance = asset.data.root_pos_w[:, 2] - near_z
+    height_gate = (
+        torch.ones_like(base_clearance, dtype=torch.bool)
+        if min_base_clearance is None
+        else base_clearance > float(min_base_clearance)
+    )
+    stance_gate = (
+        torch.ones_like(stance_speed, dtype=torch.bool)
+        if max_stance_foot_speed is None
+        else stance_speed < float(max_stance_foot_speed)
+    )
+    valid = single_stance & speed_gate & balanced & height_gate & stance_gate
     return torch.where(valid, reward, torch.zeros_like(reward))
 
 
