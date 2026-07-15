@@ -146,24 +146,24 @@ def _use_perceptive_stair_clearance(self):
     )
     self.rewards.obstacle_forward_swing = RewTerm(
         func=mdp.obstacle_forward_swing_reward,
-        weight=0.55,
+        weight=0.70,
         params={
             "sensor_cfg": SceneEntityCfg("contact_forces", body_names="ankle_pitch_.*"),
             "asset_cfg": SceneEntityCfg("robot", body_names="ankle_pitch_.*"),
             "ray_sensor_cfg": SceneEntityCfg("height_scanner"),
             "non_foot_sensor_cfg": SceneEntityCfg("contact_forces", body_names="(?!ankle_pitch_).*"),
             "obstacle_threshold": 0.06,
-            "max_obstacle_height": 0.18,
-            "target_forward_delta": 0.14,
+            "max_obstacle_height": 0.34,
+            "target_forward_delta": 0.16,
             "forward_std": 0.08,
-            "min_forward_delta": 0.03,
+            "min_forward_delta": 0.05,
             "liftoff_margin": 0.02,
             "min_liftoff": 0.05,
             "max_liftoff": 0.12,
             "liftoff_std": 0.06,
             "max_stance_foot_speed": 0.08,
             "max_tilt": 0.50,
-            "max_yaw": math.radians(15.0),
+            "max_yaw": math.radians(25.0),
         },
     )
     self.rewards.high_obstacle_approach = RewTerm(
