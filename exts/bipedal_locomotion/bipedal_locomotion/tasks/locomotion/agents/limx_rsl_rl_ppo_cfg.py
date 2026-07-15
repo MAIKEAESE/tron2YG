@@ -159,5 +159,13 @@ class SFYG_TRON2APerceptiveRandomDirPPORunnerCfg(SFYG_TRON2APerceptiveGaitPPORun
 
 #-----------------------------------------------------------------
 @configclass
+class SFYG_TRON2APerceptiveRoughBasePPORunnerCfg(SFYG_TRON2APerceptiveGaitPPORunnerCfg):
+    max_iterations = 4000
+    save_interval = 100
+    experiment_name = "sfyg_tron_2a_perceptive_rough_base"
+
+
+#-----------------------------------------------------------------
+@configclass
 class WFYG_TRON2AFlatPPORunnerCfg(WF_TRON2AFlatPPORunnerCfg):
     experiment_name = "wfyg_tron_2a_flat"

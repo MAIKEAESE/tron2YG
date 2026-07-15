@@ -617,6 +617,66 @@ def _use_random_direction_terrain_training(self):
     self.episode_length_s = 30.0
 
 
+def _use_perceptive_rough_base_training(self):
+    """Rough-terrain baseline branch: prioritize balance and clean contacts over route-tight gait shaping."""
+    self.commands.base_velocity.heading_command = True
+    self.commands.base_velocity.rel_standing_envs = 0.08
+    self.commands.base_velocity.rel_heading_envs = 1.0
+    self.commands.base_velocity.ranges.lin_vel_x = (0.20, 0.48)
+    self.commands.base_velocity.ranges.lin_vel_y = (0.0, 0.0)
+    self.commands.base_velocity.ranges.ang_vel_z = (0.0, 0.0)
+    self.commands.base_velocity.ranges.heading = (0.0, 0.0)
+    self.commands.gait_command.ranges.frequencies = (0.55, 0.80)
+    self.commands.gait_command.ranges.durations = (0.56, 0.68)
+    self.commands.gait_command.ranges.swing_height = (0.11, 0.18)
+
+    self.rewards.track_lin_vel_x_exp.weight = 2.6
+    self.rewards.track_world_lin_vel_x_exp.weight = 2.2
+    self.rewards.track_lin_vel_y_exp.weight = 1.0
+    self.rewards.track_ang_vel_z_exp.weight = 1.4
+    self.rewards.keep_balance.weight = 1.15
+    self.rewards.base_height_exp.weight = 1.05
+    self.rewards.flat_orientation_l2.weight = -0.85
+    self.rewards.lin_vel_z_l2.weight = -1.10
+    self.rewards.body_lin_acc.weight = -0.006
+    self.rewards.gait_reward.weight = 0.25
+    self.rewards.feet_slide.weight = -0.32
+    self.rewards.feet_ang_slide_penalty.weight = -0.30
+    self.rewards.action_rate_l2.weight = -0.008
+    self.rewards.action_smoothness.weight = -0.00025
+    self.rewards.knee_joint_orientation.weight = -0.45
+
+    self.rewards.centerline_y.weight = 0.8
+    self.rewards.heading_alignment.weight = 0.25
+    self.rewards.heading_error_abs.weight = -0.5
+    self.rewards.world_lin_vel_y_abs.weight = -0.7
+    self.rewards.world_pos_y_abs.weight = -0.9
+    self.rewards.world_pos_y_abs.params["deadband"] = 0.28
+    self.rewards.predicted_path_lateral_error.weight = -0.35
+    self.rewards.lateral_correction_velocity.weight = 0.8
+
+    self.rewards.forward_speed_shortfall.weight = -1.2
+    self.rewards.forward_overspeed.weight = -1.6
+    self.rewards.single_stance.weight = 0.35
+    self.rewards.swing_foot_clearance.weight = 0.45
+    self.rewards.swing_foot_liftoff.weight = 0.22
+    self.rewards.obstacle_forward_swing.weight = 0.0
+    self.rewards.high_obstacle_approach.weight = 0.45
+    self.rewards.obstacle_heading_error.weight = -1.0
+    self.rewards.undesired_contacts.weight = -3.0
+    self.rewards.double_flight.weight = -2.2
+    self.rewards.single_stance_feet_x_separation.weight = 0.03
+    self.rewards.stance_foot_stability.weight = 1.35
+    self.rewards.swing_foot_lateral_deviation.weight = -0.55
+    self.rewards.swing_knee_flexion.weight = 0.04
+    self.rewards.stance_knee_extension.weight = 0.90
+    self.rewards.balanced_feet_x_symmetry.weight = 0.35
+
+    _use_gait_heading_termination(self, limit_angle=math.radians(55.0))
+    _use_gait_lateral_termination(self, limit_distance=1.20)
+    self.episode_length_s = 30.0
+
+
 @configclass
 class SFYG_TRON2A_BaseEnvCfg(SF_TRON2A_BaseEnvCfg):
     def __post_init__(self):
@@ -761,4 +821,19 @@ class SFYG_TRON2A_PerceptiveRandomDirTronCampEnvCfg_PLAY(SFYG_TRON2A_PerceptiveG
     def __post_init__(self):
         super().__post_init__()
         _use_random_direction_terrain_training(self)
+        self.scene.num_envs = 1
+
+
+@configclass
+class SFYG_TRON2A_PerceptiveRoughBaseTronCampEnvCfg(SFYG_TRON2A_PerceptiveGaitTronCampEnvCfg):
+    def __post_init__(self):
+        super().__post_init__()
+        _use_perceptive_rough_base_training(self)
+
+
+@configclass
+class SFYG_TRON2A_PerceptiveRoughBaseTronCampEnvCfg_PLAY(SFYG_TRON2A_PerceptiveGaitTronCampEnvCfg_PLAY):
+    def __post_init__(self):
+        super().__post_init__()
+        _use_perceptive_rough_base_training(self)
         self.scene.num_envs = 1
