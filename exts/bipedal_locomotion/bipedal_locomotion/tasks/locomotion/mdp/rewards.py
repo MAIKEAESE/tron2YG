@@ -533,6 +533,56 @@ def double_flight_penalty(
     return (torch.sum(contacts.int(), dim=1) == 0).float()
 
 
+def walking_single_leg_air_time_reward(
+    env: ManagerBasedRLEnv,
+    sensor_cfg: SceneEntityCfg,
+    asset_cfg: SceneEntityCfg,
+    command_name: str = "base_velocity",
+    min_command_speed: float = 0.08,
+    min_forward_speed: float = 0.05,
+    target_air_time: float = 0.20,
+    air_time_std: float = 0.10,
+    min_air_time: float = 0.05,
+    max_air_time: float = 0.36,
+    max_tilt: float = 0.50,
+    min_base_height: float = 0.62,
+    max_lateral_abs_y: float = 0.18,
+    threshold: float = 1.0,
+) -> torch.Tensor:
+    """Reward a walking swing phase with exactly one foot airborne for a useful duration."""
+    contact_sensor: ContactSensor = env.scene.sensors[sensor_cfg.name]
+    contacts = (
+        contact_sensor.data.net_forces_w_history[:, :, sensor_cfg.body_ids, :].norm(dim=-1).max(dim=1)[0] > threshold
+    )
+    single_stance = torch.sum(contacts.int(), dim=1) == 1
+
+    asset: RigidObject | Articulation = env.scene[asset_cfg.name]
+    cmd = env.command_manager.get_command(command_name)
+    command_speed = torch.norm(cmd[:, :2], dim=1)
+    vel_yaw = quat_apply_inverse(yaw_quat(asset.data.root_quat_w), asset.data.root_lin_vel_w[:, :3])
+    moving_forward = vel_yaw[:, 0] > min_forward_speed
+
+    air_time = contact_sensor.data.current_air_time[:, sensor_cfg.body_ids]
+    swing_air_time = torch.sum(torch.where(~contacts, air_time, torch.zeros_like(air_time)), dim=1)
+    air_time_reward = torch.exp(-torch.square(swing_air_time - target_air_time) / air_time_std**2)
+    valid_air_time = (swing_air_time > min_air_time) & (swing_air_time < max_air_time)
+
+    feet_pos_w = asset.data.body_link_pos_w[:, asset_cfg.body_ids]
+    base_quat = asset.data.root_link_quat_w.unsqueeze(1).expand(-1, feet_pos_w.shape[1], -1)
+    base_pos = asset.data.root_link_state_w[:, :3].unsqueeze(1).expand(-1, feet_pos_w.shape[1], -1)
+    feet_pos_b = math_utils.quat_apply_inverse(base_quat, feet_pos_w - base_pos)
+    swing_mask = (~contacts) & single_stance.unsqueeze(-1)
+    swing_abs_y = torch.sum(torch.abs(feet_pos_b[:, :, 1]) * swing_mask.float(), dim=1)
+    lateral_ok = swing_abs_y < max_lateral_abs_y
+
+    tilt = torch.norm(asset.data.projected_gravity_b[:, :2], dim=1)
+    balanced = (tilt < max_tilt) & (asset.data.root_pos_w[:, 2] > min_base_height)
+    walking = (command_speed > min_command_speed) & moving_forward
+
+    valid = single_stance & valid_air_time & lateral_ok & balanced & walking
+    return torch.where(valid, air_time_reward, torch.zeros_like(air_time_reward))
+
+
 def swing_foot_clearance_reward(
     env: ManagerBasedRLEnv,
     sensor_cfg: SceneEntityCfg,

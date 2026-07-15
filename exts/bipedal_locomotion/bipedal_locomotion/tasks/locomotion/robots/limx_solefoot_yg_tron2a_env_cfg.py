@@ -146,6 +146,24 @@ def _use_perceptive_stair_clearance(self):
             "max_high_obstacle_yaw": math.radians(25.0),
         },
     )
+    self.rewards.walking_single_leg_air_time = RewTerm(
+        func=mdp.walking_single_leg_air_time_reward,
+        weight=0.45,
+        params={
+            "sensor_cfg": SceneEntityCfg("contact_forces", body_names="ankle_pitch_.*"),
+            "asset_cfg": SceneEntityCfg("robot", body_names="ankle_pitch_.*"),
+            "command_name": "base_velocity",
+            "min_command_speed": 0.08,
+            "min_forward_speed": 0.05,
+            "target_air_time": 0.20,
+            "air_time_std": 0.10,
+            "min_air_time": 0.05,
+            "max_air_time": 0.36,
+            "max_tilt": 0.50,
+            "min_base_height": 0.62,
+            "max_lateral_abs_y": 0.18,
+        },
+    )
     self.rewards.obstacle_forward_swing = RewTerm(
         func=mdp.obstacle_forward_swing_reward,
         weight=0.70,
