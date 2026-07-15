@@ -867,6 +867,87 @@ def high_obstacle_approach_reward(
     return torch.where(valid, reward, torch.zeros_like(reward))
 
 
+def obstacle_approach_progress_reward(
+    env: ManagerBasedRLEnv,
+    ray_sensor_cfg: SceneEntityCfg,
+    non_foot_sensor_cfg: SceneEntityCfg | None = None,
+    obstacle_threshold: float = 0.06,
+    front_min_x: float = 0.15,
+    near_abs_x: float = 0.25,
+    target_heading: float = 0.0,
+    target_speed: float = 0.34,
+    speed_std: float = 0.18,
+    max_speed: float = 0.60,
+    yaw_std: float = 0.30,
+    max_yaw: float = 0.80,
+    lateral_speed_std: float = 0.16,
+    lateral_deadband: float = 0.12,
+    lateral_pos_std: float = 0.45,
+    max_tilt: float = 0.55,
+    non_foot_threshold: float = 5.0,
+    asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+) -> torch.Tensor:
+    """Reward aligned progress toward visible terrain features without blind lateral drift."""
+    asset: RigidObject | Articulation = env.scene[asset_cfg.name]
+    ray_sensor: RayCaster = env.scene[ray_sensor_cfg.name]
+    ray_hits = ray_sensor.data.ray_hits_w
+    valid_hits = torch.isfinite(ray_hits).all(dim=-1)
+    yaw_frame = math_utils.yaw_quat(asset.data.root_quat_w).unsqueeze(1).expand(-1, ray_hits.shape[1], -1)
+    rel_hits = math_utils.quat_apply_inverse(yaw_frame, ray_hits - asset.data.root_pos_w.unsqueeze(1))
+    rel_x = rel_hits[..., 0]
+
+    front_mask = valid_hits & (rel_x > front_min_x)
+    near_mask = valid_hits & (torch.abs(rel_x) < near_abs_x)
+    low = torch.full_like(ray_hits[..., 2], -1.0e6)
+    front_z = torch.max(torch.where(front_mask, ray_hits[..., 2], low), dim=1)[0]
+    near_count = torch.sum(near_mask.float(), dim=1).clamp(min=1.0)
+    near_z = torch.sum(torch.where(near_mask, ray_hits[..., 2], torch.zeros_like(ray_hits[..., 2])), dim=1) / near_count
+    obstacle_height = torch.clamp(front_z - near_z, min=0.0)
+
+    heading = torch.tensor(target_heading, device=env.device)
+    forward_axis = torch.stack((torch.cos(heading), torch.sin(heading)))
+    lateral_axis = torch.stack((-torch.sin(heading), torch.cos(heading)))
+    vel_xy = asset.data.root_lin_vel_w[:, :2]
+    forward_speed = torch.sum(vel_xy * forward_axis, dim=1)
+    lateral_speed = torch.sum(vel_xy * lateral_axis, dim=1)
+
+    env_origins = getattr(env.scene, "env_origins", None)
+    if env_origins is None:
+        lateral_error = torch.zeros(env.num_envs, device=env.device)
+    else:
+        rel_pos_xy = asset.data.root_pos_w[:, :2] - env_origins[:, :2]
+        lateral_error = torch.sum(rel_pos_xy * lateral_axis, dim=1)
+
+    _, _, yaw = math_utils.euler_xyz_from_quat(asset.data.root_quat_w)
+    yaw_error = torch.abs(normalize_angle(yaw - target_heading))
+    tilt = torch.norm(asset.data.projected_gravity_b[:, :2], dim=1)
+
+    non_foot_clear = torch.ones(env.num_envs, dtype=torch.bool, device=env.device)
+    non_foot_body_ids = getattr(non_foot_sensor_cfg, "body_ids", None) if non_foot_sensor_cfg is not None else None
+    if non_foot_body_ids is not None and len(non_foot_body_ids) > 0:
+        contact_sensor: ContactSensor = env.scene.sensors[non_foot_sensor_cfg.name]
+        non_foot_forces = contact_sensor.data.net_forces_w_history[:, :, non_foot_sensor_cfg.body_ids, :]
+        non_foot_contact = non_foot_forces.norm(dim=-1).max(dim=1)[0].max(dim=1)[0] > non_foot_threshold
+        non_foot_clear = ~non_foot_contact
+
+    speed_reward = torch.exp(-torch.square(forward_speed - target_speed) / speed_std**2)
+    yaw_reward = torch.exp(-torch.square(yaw_error) / yaw_std**2)
+    lateral_speed_reward = torch.exp(-torch.square(lateral_speed) / lateral_speed_std**2)
+    lateral_pos_error = torch.clamp(torch.abs(lateral_error) - lateral_deadband, min=0.0)
+    lateral_pos_reward = torch.exp(-torch.square(lateral_pos_error) / lateral_pos_std**2)
+    reward = speed_reward * yaw_reward * lateral_speed_reward * lateral_pos_reward
+
+    valid = (
+        (obstacle_height > obstacle_threshold)
+        & (forward_speed > 0.0)
+        & (forward_speed < max_speed)
+        & (yaw_error < max_yaw)
+        & (tilt < max_tilt)
+        & non_foot_clear
+    )
+    return torch.where(valid, reward, torch.zeros_like(reward))
+
+
 def obstacle_heading_error_deadband(
     env: ManagerBasedRLEnv,
     ray_sensor_cfg: SceneEntityCfg,

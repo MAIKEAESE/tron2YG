@@ -183,6 +183,26 @@ def _use_perceptive_stair_clearance(self):
             "non_foot_threshold": 5.0,
         },
     )
+    self.rewards.obstacle_approach_progress = RewTerm(
+        func=mdp.obstacle_approach_progress_reward,
+        weight=0.85,
+        params={
+            "ray_sensor_cfg": SceneEntityCfg("height_scanner"),
+            "non_foot_sensor_cfg": SceneEntityCfg("contact_forces", body_names="(?!ankle_pitch_).*"),
+            "obstacle_threshold": 0.06,
+            "target_heading": 0.0,
+            "target_speed": 0.34,
+            "speed_std": 0.18,
+            "max_speed": 0.60,
+            "yaw_std": math.radians(18.0),
+            "max_yaw": math.radians(45.0),
+            "lateral_speed_std": 0.16,
+            "lateral_deadband": 0.12,
+            "lateral_pos_std": 0.45,
+            "max_tilt": 0.55,
+            "non_foot_threshold": 5.0,
+        },
+    )
     self.rewards.obstacle_heading_error = RewTerm(
         func=mdp.obstacle_heading_error_deadband,
         weight=-4.0,
