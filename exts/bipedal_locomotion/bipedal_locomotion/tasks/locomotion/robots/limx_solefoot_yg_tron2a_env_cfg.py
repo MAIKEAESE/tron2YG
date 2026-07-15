@@ -594,12 +594,16 @@ def _use_gait_lateral_termination(self, limit_distance=0.50):
     )
 
 
-def _use_obstacle_heading_termination(self, limit_angle=math.radians(35.0)):
+def _use_obstacle_heading_termination(
+    self,
+    limit_angle=math.radians(35.0),
+    obstacle_threshold=0.05,
+):
     self.terminations.bad_obstacle_heading = DoneTerm(
         func=mdp.bad_obstacle_heading,
         params={
             "ray_sensor_cfg": SceneEntityCfg("height_scanner"),
-            "obstacle_threshold": 0.05,
+            "obstacle_threshold": obstacle_threshold,
             "limit_angle": limit_angle,
             "target_heading": 0.0,
         },
@@ -611,7 +615,11 @@ def _use_competition_exposure_training(self):
     # to collect experience on the downhill exit and stair sections.
     _use_gait_heading_termination(self, limit_angle=math.radians(50.0))
     _use_gait_lateral_termination(self, limit_distance=1.00)
-    _use_obstacle_heading_termination(self, limit_angle=math.radians(35.0))
+    _use_obstacle_heading_termination(
+        self,
+        limit_angle=math.radians(55.0),
+        obstacle_threshold=0.12,
+    )
     self.episode_length_s = 30.0
 
 
@@ -834,7 +842,11 @@ class SFYG_TRON2A_PerceptiveGaitTronCampEnvCfg_PLAY(SFYG_TRON2A_BlindGaitTronCam
         _use_base_height_scanner(self)
         _use_policy_height_scan(self)
         _use_perceptive_stair_clearance(self)
-        _use_obstacle_heading_termination(self, limit_angle=math.radians(35.0))
+        _use_obstacle_heading_termination(
+            self,
+            limit_angle=math.radians(50.0),
+            obstacle_threshold=0.12,
+        )
         self.scene.num_envs = 1
 
 
