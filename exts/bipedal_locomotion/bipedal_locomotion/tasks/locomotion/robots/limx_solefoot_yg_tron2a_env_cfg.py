@@ -146,7 +146,7 @@ def _use_perceptive_stair_clearance(self):
     )
     self.rewards.obstacle_forward_swing = RewTerm(
         func=mdp.obstacle_forward_swing_reward,
-        weight=0.70,
+        weight=0.85,
         params={
             "sensor_cfg": SceneEntityCfg("contact_forces", body_names="ankle_pitch_.*"),
             "asset_cfg": SceneEntityCfg("robot", body_names="ankle_pitch_.*"),
@@ -154,7 +154,7 @@ def _use_perceptive_stair_clearance(self):
             "non_foot_sensor_cfg": SceneEntityCfg("contact_forces", body_names="(?!ankle_pitch_).*"),
             "obstacle_threshold": 0.06,
             "max_obstacle_height": 0.34,
-            "target_forward_delta": 0.16,
+            "target_forward_delta": 0.18,
             "forward_std": 0.08,
             "min_forward_delta": 0.05,
             "liftoff_margin": 0.02,
@@ -215,7 +215,7 @@ def _use_perceptive_stair_clearance(self):
     )
     self.rewards.obstacle_heading_alignment = RewTerm(
         func=mdp.obstacle_heading_alignment_exp,
-        weight=2.2,
+        weight=2.6,
         params={
             "ray_sensor_cfg": SceneEntityCfg("height_scanner"),
             "obstacle_threshold": 0.05,
