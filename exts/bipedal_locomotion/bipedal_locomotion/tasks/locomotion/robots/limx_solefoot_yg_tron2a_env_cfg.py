@@ -94,10 +94,12 @@ def _use_policy_height_scan(self):
 
 
 def _use_perceptive_stair_clearance(self):
-    self.commands.base_velocity.rel_standing_envs = 0.10
-    self.commands.base_velocity.ranges.lin_vel_x = (0.25, 0.70)
-    self.commands.gait_command.ranges.swing_height = (0.15, 0.24)
-    self.rewards.single_stance.weight = 0.65
+    self.commands.base_velocity.rel_standing_envs = 0.22
+    self.commands.base_velocity.ranges.lin_vel_x = (0.12, 0.50)
+    self.commands.gait_command.ranges.frequencies = (0.45, 0.75)
+    self.commands.gait_command.ranges.durations = (0.58, 0.72)
+    self.commands.gait_command.ranges.swing_height = (0.13, 0.23)
+    self.rewards.single_stance.weight = 0.90
     self.rewards.swing_foot_clearance = RewTerm(
         func=mdp.terrain_adaptive_swing_foot_clearance_reward,
         weight=0.80,
@@ -112,7 +114,7 @@ def _use_perceptive_stair_clearance(self):
             "front_min_x": 0.15,
             "near_abs_x": 0.25,
             "obstacle_threshold": 0.025,
-            "min_forward_speed": 0.30,
+            "min_forward_speed": 0.12,
             "max_tilt": 0.50,
             "allow_obstacle_stationary": True,
             "min_base_clearance": 0.62,
@@ -225,28 +227,29 @@ def _use_perceptive_stair_clearance(self):
     )
     self.rewards.undesired_contacts.weight = -3.5
     self.rewards.undesired_contacts.params["threshold"] = 5.0
-    self.rewards.double_flight.weight = -2.8
+    self.rewards.feet_distance.weight = 0.25
+    self.rewards.double_flight.weight = -3.4
     self.rewards.same_feet_x_position.weight = -0.004
-    self.rewards.single_stance_feet_x_separation.weight = 0.05
-    self.rewards.single_stance_feet_x_separation.params["target_distance"] = 0.16
-    self.rewards.single_stance_feet_x_separation.params["std"] = 0.12
+    self.rewards.single_stance_feet_x_separation.weight = 0.03
+    self.rewards.single_stance_feet_x_separation.params["target_distance"] = 0.12
+    self.rewards.single_stance_feet_x_separation.params["std"] = 0.10
     self.rewards.stance_foot_stability = RewTerm(
         func=mdp.stance_foot_stability_reward,
-        weight=1.15,
+        weight=1.45,
         params={
             "sensor_cfg": SceneEntityCfg("contact_forces", body_names="ankle_pitch_.*"),
             "asset_cfg": SceneEntityCfg("robot", body_names="ankle_pitch_.*"),
-            "foot_vel_std": 0.12,
+            "foot_vel_std": 0.09,
             "max_tilt": 0.45,
         },
     )
     self.rewards.swing_foot_lateral_deviation = RewTerm(
         func=mdp.swing_foot_lateral_deviation,
-        weight=-1.00,
+        weight=-1.25,
         params={
             "sensor_cfg": SceneEntityCfg("contact_forces", body_names="ankle_pitch_.*"),
             "asset_cfg": SceneEntityCfg("robot", body_names="ankle_pitch_.*"),
-            "max_abs_y": 0.18,
+            "max_abs_y": 0.15,
         },
     )
     self.rewards.swing_knee_flexion = RewTerm(
@@ -257,7 +260,7 @@ def _use_perceptive_stair_clearance(self):
             "asset_cfg": SceneEntityCfg("robot", joint_names="knee_[LR]_Joint"),
             "target_flexion": 0.30,
             "std": 0.20,
-            "min_forward_speed": 0.30,
+            "min_forward_speed": 0.12,
             "max_tilt": 0.55,
         },
     )
@@ -388,7 +391,7 @@ def _use_tron_camp_curriculum_resets(self):
                 "downhill_exit": 0.70,
                 "bumps_entry": 0.55,
                 "stairs_entry": 1.35,
-                "platform_entry": 0.35,
+                "platform_entry": 0.10,
             },
             {
                 "start_flat": 0.30,
@@ -396,7 +399,7 @@ def _use_tron_camp_curriculum_resets(self):
                 "downhill_exit": 0.50,
                 "bumps_entry": 0.30,
                 "stairs_entry": 1.35,
-                "platform_entry": 1.10,
+                "platform_entry": 0.20,
             },
             {
                 "start_flat": 0.25,
@@ -404,7 +407,7 @@ def _use_tron_camp_curriculum_resets(self):
                 "downhill_exit": 0.35,
                 "bumps_entry": 0.20,
                 "stairs_entry": 1.50,
-                "platform_entry": 1.35,
+                "platform_entry": 0.35,
             },
         ),
         # RSL-RL uses 24 rollout steps per iteration for this task. The schedule
@@ -447,8 +450,8 @@ def _use_tron_camp_curriculum_resets(self):
                     "up_ramp_entry": 0.08,
                     "downhill_exit": 0.08,
                     "bumps_entry": 0.22,
-                    "stairs_entry": 0.36,
-                    "platform_entry": 0.04,
+                    "stairs_entry": 0.38,
+                    "platform_entry": 0.02,
                 },
             },
             {
@@ -458,8 +461,8 @@ def _use_tron_camp_curriculum_resets(self):
                     "up_ramp_entry": 0.06,
                     "downhill_exit": 0.06,
                     "bumps_entry": 0.16,
-                    "stairs_entry": 0.44,
-                    "platform_entry": 0.08,
+                    "stairs_entry": 0.48,
+                    "platform_entry": 0.04,
                 },
             },
             {
@@ -469,8 +472,8 @@ def _use_tron_camp_curriculum_resets(self):
                     "up_ramp_entry": 0.05,
                     "downhill_exit": 0.05,
                     "bumps_entry": 0.12,
-                    "stairs_entry": 0.46,
-                    "platform_entry": 0.14,
+                    "stairs_entry": 0.52,
+                    "platform_entry": 0.08,
                 },
             },
         ),
