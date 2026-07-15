@@ -173,9 +173,9 @@ def _use_perceptive_stair_clearance(self):
             "ray_sensor_cfg": SceneEntityCfg("height_scanner"),
             "non_foot_sensor_cfg": SceneEntityCfg("contact_forces", body_names="(?!ankle_pitch_).*"),
             "min_obstacle_height": 0.05,
-            "target_speed": 0.22,
-            "speed_std": 0.18,
-            "max_speed": 0.50,
+            "target_speed": 0.18,
+            "speed_std": 0.14,
+            "max_speed": 0.42,
             "max_yaw": math.radians(25.0),
             "yaw_std": math.radians(14.0),
             "max_tilt": 0.50,
@@ -185,7 +185,7 @@ def _use_perceptive_stair_clearance(self):
     )
     self.rewards.obstacle_heading_error = RewTerm(
         func=mdp.obstacle_heading_error_deadband,
-        weight=-2.2,
+        weight=-4.0,
         params={
             "ray_sensor_cfg": SceneEntityCfg("height_scanner"),
             "obstacle_threshold": 0.05,
@@ -589,6 +589,15 @@ def _use_competition_exposure_training(self):
     # to collect experience on the downhill exit and stair sections.
     _use_gait_heading_termination(self, limit_angle=math.radians(50.0))
     _use_gait_lateral_termination(self, limit_distance=1.00)
+    self.terminations.bad_obstacle_heading = DoneTerm(
+        func=mdp.bad_obstacle_heading,
+        params={
+            "ray_sensor_cfg": SceneEntityCfg("height_scanner"),
+            "obstacle_threshold": 0.05,
+            "limit_angle": math.radians(35.0),
+            "target_heading": 0.0,
+        },
+    )
     self.episode_length_s = 30.0
 
 

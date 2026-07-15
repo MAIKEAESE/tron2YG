@@ -173,6 +173,38 @@ def bad_heading(
     return torch.abs(normalize_angle(yaw - target_heading)) > limit_angle
 
 
+def bad_obstacle_heading(
+    env: ManagerBasedRLEnv,
+    ray_sensor_cfg: SceneEntityCfg,
+    obstacle_threshold: float = 0.05,
+    limit_angle: float = 0.61,
+    target_heading: float = 0.0,
+    front_min_x: float = 0.15,
+    near_abs_x: float = 0.25,
+    asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+) -> torch.Tensor:
+    """Terminate when the robot approaches visible terrain features with a large yaw error."""
+    asset: RigidObject = env.scene[asset_cfg.name]
+    ray_sensor: RayCaster = env.scene[ray_sensor_cfg.name]
+    ray_hits = ray_sensor.data.ray_hits_w
+    valid_hits = torch.isfinite(ray_hits).all(dim=-1)
+    yaw_frame = math_utils.yaw_quat(asset.data.root_quat_w).unsqueeze(1).expand(-1, ray_hits.shape[1], -1)
+    rel_hits = math_utils.quat_apply_inverse(yaw_frame, ray_hits - asset.data.root_pos_w.unsqueeze(1))
+    rel_x = rel_hits[..., 0]
+
+    front_mask = valid_hits & (rel_x > front_min_x)
+    near_mask = valid_hits & (torch.abs(rel_x) < near_abs_x)
+    low = torch.full_like(ray_hits[..., 2], -1.0e6)
+    front_z = torch.max(torch.where(front_mask, ray_hits[..., 2], low), dim=1)[0]
+    near_count = torch.sum(near_mask.float(), dim=1).clamp(min=1.0)
+    near_z = torch.sum(torch.where(near_mask, ray_hits[..., 2], torch.zeros_like(ray_hits[..., 2])), dim=1) / near_count
+    obstacle_height = torch.clamp(front_z - near_z, min=0.0)
+
+    _, _, yaw = math_utils.euler_xyz_from_quat(asset.data.root_quat_w)
+    yaw_error = torch.abs(normalize_angle(yaw - target_heading))
+    return (obstacle_height > obstacle_threshold) & (yaw_error > limit_angle)
+
+
 def world_lin_vel_y_abs(
     env: ManagerBasedRLEnv,
     asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
