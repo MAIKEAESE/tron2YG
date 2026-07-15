@@ -185,42 +185,42 @@ def _use_perceptive_stair_clearance(self):
     )
     self.rewards.obstacle_approach_progress = RewTerm(
         func=mdp.obstacle_approach_progress_reward,
-        weight=0.85,
+        weight=1.00,
         params={
             "ray_sensor_cfg": SceneEntityCfg("height_scanner"),
             "non_foot_sensor_cfg": SceneEntityCfg("contact_forces", body_names="(?!ankle_pitch_).*"),
             "obstacle_threshold": 0.06,
             "target_heading": 0.0,
-            "target_speed": 0.34,
-            "speed_std": 0.18,
-            "max_speed": 0.60,
-            "yaw_std": math.radians(18.0),
-            "max_yaw": math.radians(45.0),
-            "lateral_speed_std": 0.16,
-            "lateral_deadband": 0.12,
-            "lateral_pos_std": 0.45,
+            "target_speed": 0.28,
+            "speed_std": 0.16,
+            "max_speed": 0.52,
+            "yaw_std": math.radians(12.0),
+            "max_yaw": math.radians(35.0),
+            "lateral_speed_std": 0.10,
+            "lateral_deadband": 0.08,
+            "lateral_pos_std": 0.35,
             "max_tilt": 0.55,
             "non_foot_threshold": 5.0,
         },
     )
     self.rewards.obstacle_heading_error = RewTerm(
         func=mdp.obstacle_heading_error_deadband,
-        weight=-4.0,
+        weight=-5.0,
         params={
             "ray_sensor_cfg": SceneEntityCfg("height_scanner"),
             "obstacle_threshold": 0.05,
             "target_heading": 0.0,
-            "deadband": math.radians(12.0),
+            "deadband": math.radians(10.0),
         },
     )
     self.rewards.obstacle_heading_alignment = RewTerm(
         func=mdp.obstacle_heading_alignment_exp,
-        weight=1.6,
+        weight=2.2,
         params={
             "ray_sensor_cfg": SceneEntityCfg("height_scanner"),
             "obstacle_threshold": 0.05,
             "target_heading": 0.0,
-            "std": math.radians(18.0),
+            "std": math.radians(14.0),
         },
     )
     self.rewards.undesired_contacts.weight = -3.5
