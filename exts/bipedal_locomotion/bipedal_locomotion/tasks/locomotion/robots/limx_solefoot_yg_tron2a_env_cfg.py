@@ -148,20 +148,21 @@ def _use_perceptive_stair_clearance(self):
     )
     self.rewards.walking_single_leg_air_time = RewTerm(
         func=mdp.walking_single_leg_air_time_reward,
-        weight=0.45,
+        weight=0.75,
         params={
             "sensor_cfg": SceneEntityCfg("contact_forces", body_names="ankle_pitch_.*"),
             "asset_cfg": SceneEntityCfg("robot", body_names="ankle_pitch_.*"),
             "command_name": "base_velocity",
             "min_command_speed": 0.08,
             "min_forward_speed": 0.05,
-            "target_air_time": 0.20,
-            "air_time_std": 0.10,
-            "min_air_time": 0.05,
-            "max_air_time": 0.36,
+            "target_air_time": 0.28,
+            "air_time_std": 0.12,
+            "min_air_time": 0.08,
+            "max_air_time": 0.48,
             "max_tilt": 0.50,
             "min_base_height": 0.62,
             "max_lateral_abs_y": 0.18,
+            "max_stance_foot_speed": 0.10,
         },
     )
     self.rewards.obstacle_forward_swing = RewTerm(
@@ -246,14 +247,14 @@ def _use_perceptive_stair_clearance(self):
     self.rewards.undesired_contacts.weight = -3.5
     self.rewards.undesired_contacts.params["threshold"] = 5.0
     self.rewards.feet_distance.weight = 0.25
-    self.rewards.double_flight.weight = -3.4
+    self.rewards.double_flight.weight = -4.0
     self.rewards.same_feet_x_position.weight = -0.004
     self.rewards.single_stance_feet_x_separation.weight = 0.03
     self.rewards.single_stance_feet_x_separation.params["target_distance"] = 0.12
     self.rewards.single_stance_feet_x_separation.params["std"] = 0.10
     self.rewards.stance_foot_stability = RewTerm(
         func=mdp.stance_foot_stability_reward,
-        weight=1.45,
+        weight=1.70,
         params={
             "sensor_cfg": SceneEntityCfg("contact_forces", body_names="ankle_pitch_.*"),
             "asset_cfg": SceneEntityCfg("robot", body_names="ankle_pitch_.*"),

@@ -547,6 +547,7 @@ def walking_single_leg_air_time_reward(
     max_tilt: float = 0.50,
     min_base_height: float = 0.62,
     max_lateral_abs_y: float = 0.18,
+    max_stance_foot_speed: float = 0.10,
     threshold: float = 1.0,
 ) -> torch.Tensor:
     """Reward a walking swing phase with exactly one foot airborne for a useful duration."""
@@ -574,12 +575,16 @@ def walking_single_leg_air_time_reward(
     swing_mask = (~contacts) & single_stance.unsqueeze(-1)
     swing_abs_y = torch.sum(torch.abs(feet_pos_b[:, :, 1]) * swing_mask.float(), dim=1)
     lateral_ok = swing_abs_y < max_lateral_abs_y
+    stance_mask = contacts & single_stance.unsqueeze(-1)
+    foot_speed_xy = torch.norm(asset.data.body_lin_vel_w[:, asset_cfg.body_ids, :2], dim=-1)
+    stance_foot_speed = torch.sum(foot_speed_xy * stance_mask.float(), dim=1)
+    stance_stable = stance_foot_speed < max_stance_foot_speed
 
     tilt = torch.norm(asset.data.projected_gravity_b[:, :2], dim=1)
     balanced = (tilt < max_tilt) & (asset.data.root_pos_w[:, 2] > min_base_height)
     walking = (command_speed > min_command_speed) & moving_forward
 
-    valid = single_stance & valid_air_time & lateral_ok & balanced & walking
+    valid = single_stance & valid_air_time & lateral_ok & stance_stable & balanced & walking
     return torch.where(valid, air_time_reward, torch.zeros_like(air_time_reward))
 
 
