@@ -548,13 +548,15 @@ def walking_single_leg_air_time_reward(
     min_base_height: float = 0.62,
     max_lateral_abs_y: float = 0.18,
     max_stance_foot_speed: float = 0.10,
+    min_stance_force: float = 100.0,
+    max_heading_error: float = 0.45,
     threshold: float = 1.0,
 ) -> torch.Tensor:
     """Reward a walking swing phase with exactly one foot airborne for a useful duration."""
     contact_sensor: ContactSensor = env.scene.sensors[sensor_cfg.name]
-    contacts = (
-        contact_sensor.data.net_forces_w_history[:, :, sensor_cfg.body_ids, :].norm(dim=-1).max(dim=1)[0] > threshold
-    )
+    current_force = contact_sensor.data.net_forces_w[:, sensor_cfg.body_ids, :].norm(dim=-1)
+    current_contact_time = contact_sensor.data.current_contact_time[:, sensor_cfg.body_ids]
+    contacts = (current_force > threshold) & (current_contact_time > 0.0)
     single_stance = torch.sum(contacts.int(), dim=1) == 1
 
     asset: RigidObject | Articulation = env.scene[asset_cfg.name]
@@ -562,6 +564,8 @@ def walking_single_leg_air_time_reward(
     command_speed = torch.norm(cmd[:, :2], dim=1)
     vel_yaw = quat_apply_inverse(yaw_quat(asset.data.root_quat_w), asset.data.root_lin_vel_w[:, :3])
     moving_forward = vel_yaw[:, 0] > min_forward_speed
+    _, _, yaw = math_utils.euler_xyz_from_quat(asset.data.root_quat_w)
+    heading_ok = torch.abs(normalize_angle(yaw)) < max_heading_error
 
     air_time = contact_sensor.data.current_air_time[:, sensor_cfg.body_ids]
     swing_air_time = torch.sum(torch.where(~contacts, air_time, torch.zeros_like(air_time)), dim=1)
@@ -578,13 +582,14 @@ def walking_single_leg_air_time_reward(
     stance_mask = contacts & single_stance.unsqueeze(-1)
     foot_speed_xy = torch.norm(asset.data.body_lin_vel_w[:, asset_cfg.body_ids, :2], dim=-1)
     stance_foot_speed = torch.sum(foot_speed_xy * stance_mask.float(), dim=1)
-    stance_stable = stance_foot_speed < max_stance_foot_speed
+    stance_force = torch.sum(current_force * stance_mask.float(), dim=1)
+    stance_stable = (stance_foot_speed < max_stance_foot_speed) & (stance_force > min_stance_force)
 
     tilt = torch.norm(asset.data.projected_gravity_b[:, :2], dim=1)
     balanced = (tilt < max_tilt) & (asset.data.root_pos_w[:, 2] > min_base_height)
     walking = (command_speed > min_command_speed) & moving_forward
 
-    valid = single_stance & valid_air_time & lateral_ok & stance_stable & balanced & walking
+    valid = single_stance & valid_air_time & lateral_ok & stance_stable & balanced & walking & heading_ok
     return torch.where(valid, air_time_reward, torch.zeros_like(air_time_reward))
 
 
