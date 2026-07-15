@@ -900,6 +900,39 @@ def obstacle_heading_error_deadband(
     return torch.where(obstacle_height > obstacle_threshold, penalty, torch.zeros_like(penalty))
 
 
+def obstacle_heading_alignment_exp(
+    env: ManagerBasedRLEnv,
+    ray_sensor_cfg: SceneEntityCfg,
+    obstacle_threshold: float = 0.05,
+    front_min_x: float = 0.15,
+    near_abs_x: float = 0.25,
+    target_heading: float = 0.0,
+    std: float = 0.30,
+    asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+) -> torch.Tensor:
+    """Reward being aligned with the target heading once a visible obstacle is ahead."""
+    asset: RigidObject | Articulation = env.scene[asset_cfg.name]
+    ray_sensor: RayCaster = env.scene[ray_sensor_cfg.name]
+    ray_hits = ray_sensor.data.ray_hits_w
+    valid_hits = torch.isfinite(ray_hits).all(dim=-1)
+    yaw_frame = math_utils.yaw_quat(asset.data.root_quat_w).unsqueeze(1).expand(-1, ray_hits.shape[1], -1)
+    rel_hits = math_utils.quat_apply_inverse(yaw_frame, ray_hits - asset.data.root_pos_w.unsqueeze(1))
+    rel_x = rel_hits[..., 0]
+
+    front_mask = valid_hits & (rel_x > front_min_x)
+    near_mask = valid_hits & (torch.abs(rel_x) < near_abs_x)
+    low = torch.full_like(ray_hits[..., 2], -1.0e6)
+    front_z = torch.max(torch.where(front_mask, ray_hits[..., 2], low), dim=1)[0]
+    near_count = torch.sum(near_mask.float(), dim=1).clamp(min=1.0)
+    near_z = torch.sum(torch.where(near_mask, ray_hits[..., 2], torch.zeros_like(ray_hits[..., 2])), dim=1) / near_count
+    obstacle_height = torch.clamp(front_z - near_z, min=0.0)
+
+    _, _, yaw = math_utils.euler_xyz_from_quat(asset.data.root_quat_w)
+    yaw_error = normalize_angle(yaw - target_heading)
+    reward = torch.exp(-torch.square(yaw_error) / std**2)
+    return torch.where(obstacle_height > obstacle_threshold, reward, torch.zeros_like(reward))
+
+
 def stance_foot_stability_reward(
     env: ManagerBasedRLEnv,
     sensor_cfg: SceneEntityCfg,
