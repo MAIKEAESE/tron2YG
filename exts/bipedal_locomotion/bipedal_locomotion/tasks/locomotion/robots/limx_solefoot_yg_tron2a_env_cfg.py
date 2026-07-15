@@ -167,7 +167,7 @@ def _use_perceptive_stair_clearance(self):
         params={
             "ray_sensor_cfg": SceneEntityCfg("height_scanner"),
             "non_foot_sensor_cfg": SceneEntityCfg("contact_forces", body_names="(?!ankle_pitch_).*"),
-            "min_obstacle_height": 0.18,
+            "min_obstacle_height": 0.05,
             "target_speed": 0.22,
             "speed_std": 0.18,
             "max_speed": 0.50,
@@ -176,6 +176,16 @@ def _use_perceptive_stair_clearance(self):
             "max_tilt": 0.50,
             "min_base_height": 0.64,
             "non_foot_threshold": 5.0,
+        },
+    )
+    self.rewards.obstacle_heading_error = RewTerm(
+        func=mdp.obstacle_heading_error_deadband,
+        weight=-2.2,
+        params={
+            "ray_sensor_cfg": SceneEntityCfg("height_scanner"),
+            "obstacle_threshold": 0.05,
+            "target_heading": 0.0,
+            "deadband": math.radians(12.0),
         },
     )
     self.rewards.undesired_contacts.weight = -2.0
