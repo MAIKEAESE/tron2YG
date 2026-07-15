@@ -527,12 +527,17 @@ def swing_foot_liftoff_reward(
     env: ManagerBasedRLEnv,
     sensor_cfg: SceneEntityCfg,
     asset_cfg: SceneEntityCfg,
+    ray_sensor_cfg: SceneEntityCfg | None = None,
     min_liftoff: float = 0.025,
     target_liftoff: float = 0.055,
     max_liftoff: float = 0.08,
     std: float = 0.025,
     max_lateral_abs_y: float = 0.18,
     max_tilt: float = 0.50,
+    high_obstacle_threshold: float | None = None,
+    max_high_obstacle_yaw: float | None = None,
+    front_min_x: float = 0.15,
+    near_abs_x: float = 0.25,
     threshold: float = 1.0,
 ) -> torch.Tensor:
     """Reward modest, body-aligned swing-foot liftoff before high obstacle clearance."""
@@ -557,8 +562,26 @@ def swing_foot_liftoff_reward(
     lateral_reward = torch.exp(-torch.square(swing_abs_y) / max_lateral_abs_y**2)
     tilt = torch.norm(asset.data.projected_gravity_b[:, :2], dim=1)
     balanced = tilt < max_tilt
+    heading_gate = torch.ones(env.num_envs, dtype=torch.bool, device=env.device)
+    if ray_sensor_cfg is not None and high_obstacle_threshold is not None and max_high_obstacle_yaw is not None:
+        ray_sensor: RayCaster = env.scene[ray_sensor_cfg.name]
+        ray_hits = ray_sensor.data.ray_hits_w
+        valid_hits = torch.isfinite(ray_hits).all(dim=-1)
+        yaw_frame = math_utils.yaw_quat(asset.data.root_quat_w).unsqueeze(1).expand(-1, ray_hits.shape[1], -1)
+        rel_hits = math_utils.quat_apply_inverse(yaw_frame, ray_hits - asset.data.root_pos_w.unsqueeze(1))
+        rel_x = rel_hits[..., 0]
+        front_mask = valid_hits & (rel_x > front_min_x)
+        near_mask = valid_hits & (torch.abs(rel_x) < near_abs_x)
+        low = torch.full_like(ray_hits[..., 2], -1.0e6)
+        front_z = torch.max(torch.where(front_mask, ray_hits[..., 2], low), dim=1)[0]
+        near_count = torch.sum(near_mask.float(), dim=1).clamp(min=1.0)
+        near_z = torch.sum(torch.where(near_mask, ray_hits[..., 2], torch.zeros_like(ray_hits[..., 2])), dim=1) / near_count
+        obstacle_height = torch.clamp(front_z - near_z, min=0.0)
+        _, _, yaw = math_utils.euler_xyz_from_quat(asset.data.root_quat_w)
+        high_obstacle = obstacle_height > float(high_obstacle_threshold)
+        heading_gate = (~high_obstacle) | (torch.abs(normalize_angle(yaw)) < float(max_high_obstacle_yaw))
     reward = height_reward * lateral_reward
-    return torch.where(single_stance & balanced & valid_liftoff, reward, torch.zeros_like(reward))
+    return torch.where(single_stance & balanced & valid_liftoff & heading_gate, reward, torch.zeros_like(reward))
 
 
 def terrain_adaptive_swing_foot_clearance_reward(
@@ -580,6 +603,8 @@ def terrain_adaptive_swing_foot_clearance_reward(
     allow_obstacle_stationary: bool = False,
     min_base_clearance: float | None = None,
     max_stance_foot_speed: float | None = None,
+    high_obstacle_threshold: float | None = None,
+    max_high_obstacle_yaw: float | None = None,
 ) -> torch.Tensor:
     """Reward swing-foot clearance only while the policy is still walking and balanced."""
     contact_sensor: ContactSensor = env.scene.sensors[sensor_cfg.name]
@@ -643,7 +668,12 @@ def terrain_adaptive_swing_foot_clearance_reward(
         if max_stance_foot_speed is None
         else stance_speed < float(max_stance_foot_speed)
     )
-    valid = single_stance & speed_gate & balanced & height_gate & stance_gate
+    heading_gate = torch.ones_like(obstacle_height, dtype=torch.bool)
+    if high_obstacle_threshold is not None and max_high_obstacle_yaw is not None:
+        _, _, yaw = math_utils.euler_xyz_from_quat(asset.data.root_quat_w)
+        high_obstacle = obstacle_height > float(high_obstacle_threshold)
+        heading_gate = (~high_obstacle) | (torch.abs(normalize_angle(yaw)) < float(max_high_obstacle_yaw))
+    valid = single_stance & speed_gate & balanced & height_gate & stance_gate & heading_gate
     return torch.where(valid, reward, torch.zeros_like(reward))
 
 

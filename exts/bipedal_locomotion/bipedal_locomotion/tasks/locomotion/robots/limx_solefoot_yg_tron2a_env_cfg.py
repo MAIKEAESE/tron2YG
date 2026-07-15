@@ -117,6 +117,8 @@ def _use_perceptive_stair_clearance(self):
             "allow_obstacle_stationary": True,
             "min_base_clearance": 0.62,
             "max_stance_foot_speed": 0.28,
+            "high_obstacle_threshold": 0.18,
+            "max_high_obstacle_yaw": math.radians(25.0),
             # Observed obstacle height -> absolute swing-clearance target.
             "height_bands": (
                 (0.025, 0.07),
@@ -131,12 +133,15 @@ def _use_perceptive_stair_clearance(self):
         params={
             "sensor_cfg": SceneEntityCfg("contact_forces", body_names="ankle_pitch_.*"),
             "asset_cfg": SceneEntityCfg("robot", body_names="ankle_pitch_.*"),
+            "ray_sensor_cfg": SceneEntityCfg("height_scanner"),
             "min_liftoff": 0.025,
             "target_liftoff": 0.055,
             "max_liftoff": 0.08,
             "std": 0.025,
             "max_lateral_abs_y": 0.18,
             "max_tilt": 0.50,
+            "high_obstacle_threshold": 0.18,
+            "max_high_obstacle_yaw": math.radians(25.0),
         },
     )
     self.rewards.obstacle_forward_swing = RewTerm(
@@ -188,7 +193,7 @@ def _use_perceptive_stair_clearance(self):
             "deadband": math.radians(12.0),
         },
     )
-    self.rewards.undesired_contacts.weight = -2.0
+    self.rewards.undesired_contacts.weight = -3.5
     self.rewards.undesired_contacts.params["threshold"] = 5.0
     self.rewards.double_flight.weight = -2.8
     self.rewards.same_feet_x_position.weight = -0.004
