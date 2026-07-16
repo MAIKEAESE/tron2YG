@@ -162,9 +162,9 @@ def _use_perceptive_stair_clearance(self):
             "max_tilt": 0.50,
             "min_base_height": 0.62,
             "max_lateral_abs_y": 0.18,
-            "max_stance_foot_speed": 0.10,
+            "max_stance_foot_speed": 0.14,
             "min_stance_force": 100.0,
-            "max_heading_error": math.radians(25.0),
+            "max_heading_error": math.radians(20.0),
         },
     )
     self.rewards.obstacle_forward_swing = RewTerm(
@@ -249,7 +249,7 @@ def _use_perceptive_stair_clearance(self):
     self.rewards.undesired_contacts.weight = -3.5
     self.rewards.undesired_contacts.params["threshold"] = 5.0
     self.rewards.feet_distance.weight = 0.25
-    self.rewards.double_flight.weight = -4.5
+    self.rewards.double_flight.weight = -5.2
     self.rewards.same_feet_x_position.weight = -0.004
     self.rewards.single_stance_feet_x_separation.weight = 0.03
     self.rewards.single_stance_feet_x_separation.params["target_distance"] = 0.12
