@@ -287,6 +287,26 @@ def _use_perceptive_stair_clearance(self):
             "max_tilt": 0.55,
         },
     )
+    self.rewards.forward_swing_knee_lift = RewTerm(
+        func=mdp.forward_swing_knee_lift_reward,
+        weight=0.35,
+        params={
+            "sensor_cfg": SceneEntityCfg("contact_forces", body_names="ankle_pitch_.*"),
+            "feet_cfg": SceneEntityCfg("robot", body_names="ankle_pitch_.*"),
+            "knee_cfg": SceneEntityCfg("robot", joint_names="knee_[LR]_Joint"),
+            "min_forward_delta": 0.04,
+            "target_lift": 0.10,
+            "lift_std": 0.05,
+            "target_knee_flexion": 0.38,
+            "knee_std": 0.20,
+            "min_lift": 0.04,
+            "max_tilt": 0.50,
+            "min_base_height": 0.64,
+            "max_heading_error": math.radians(25.0),
+            "max_stance_foot_speed": 0.12,
+            "min_stance_force": 120.0,
+        },
+    )
     self.rewards.stance_knee_extension = RewTerm(
         func=mdp.stance_knee_extension_reward,
         weight=0.75,

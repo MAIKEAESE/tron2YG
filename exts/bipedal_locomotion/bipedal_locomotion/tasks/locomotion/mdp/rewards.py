@@ -864,6 +864,73 @@ def obstacle_forward_swing_reward(
     return torch.where(valid, reward, torch.zeros_like(reward))
 
 
+def forward_swing_knee_lift_reward(
+    env: ManagerBasedRLEnv,
+    sensor_cfg: SceneEntityCfg,
+    feet_cfg: SceneEntityCfg,
+    knee_cfg: SceneEntityCfg,
+    min_forward_delta: float = 0.04,
+    target_lift: float = 0.10,
+    lift_std: float = 0.05,
+    target_knee_flexion: float = 0.38,
+    knee_std: float = 0.20,
+    min_lift: float = 0.04,
+    max_tilt: float = 0.50,
+    min_base_height: float = 0.64,
+    max_heading_error: float = 0.44,
+    max_stance_foot_speed: float = 0.12,
+    min_stance_force: float = 120.0,
+    contact_threshold: float = 1.0,
+) -> torch.Tensor:
+    """Reward knee bend and lift only after the swing foot has started moving forward."""
+    contact_sensor: ContactSensor = env.scene.sensors[sensor_cfg.name]
+    current_force = contact_sensor.data.net_forces_w[:, sensor_cfg.body_ids, :].norm(dim=-1)
+    current_contact_time = contact_sensor.data.current_contact_time[:, sensor_cfg.body_ids]
+    contacts = (current_force > contact_threshold) & (current_contact_time > 0.0)
+    single_stance = torch.sum(contacts.int(), dim=1) == 1
+    swing_mask = (~contacts) & single_stance.unsqueeze(-1)
+    stance_mask = contacts & single_stance.unsqueeze(-1)
+
+    asset: Articulation = env.scene[feet_cfg.name]
+    feet_pos_w = asset.data.body_link_pos_w[:, feet_cfg.body_ids]
+    base_quat = asset.data.root_link_quat_w.unsqueeze(1).expand(-1, feet_pos_w.shape[1], -1)
+    base_pos = asset.data.root_link_state_w[:, :3].unsqueeze(1).expand(-1, feet_pos_w.shape[1], -1)
+    feet_pos_b = math_utils.quat_apply_inverse(base_quat, feet_pos_w - base_pos)
+
+    swing_x = torch.sum(feet_pos_b[:, :, 0] * swing_mask.float(), dim=1)
+    stance_x = torch.sum(feet_pos_b[:, :, 0] * stance_mask.float(), dim=1)
+    forward_delta = swing_x - stance_x
+    swing_z = torch.sum(feet_pos_b[:, :, 2] * swing_mask.float(), dim=1)
+    stance_z = torch.sum(feet_pos_b[:, :, 2] * stance_mask.float(), dim=1)
+    lift = swing_z - stance_z
+
+    knee_delta = asset.data.joint_pos[:, knee_cfg.joint_ids] - asset.data.default_joint_pos[:, knee_cfg.joint_ids]
+    knee_flexion = torch.abs(knee_delta)
+    swing_knee_flexion = torch.sum(knee_flexion * swing_mask.float(), dim=1)
+
+    foot_speed_xy = torch.norm(asset.data.body_lin_vel_w[:, feet_cfg.body_ids, :2], dim=-1)
+    stance_foot_speed = torch.sum(foot_speed_xy * stance_mask.float(), dim=1)
+    stance_force = torch.sum(current_force * stance_mask.float(), dim=1)
+    stance_stable = (stance_foot_speed < max_stance_foot_speed) & (stance_force > min_stance_force)
+
+    tilt = torch.norm(asset.data.projected_gravity_b[:, :2], dim=1)
+    _, _, yaw = math_utils.euler_xyz_from_quat(asset.data.root_quat_w)
+    balanced = (tilt < max_tilt) & (asset.data.root_pos_w[:, 2] > min_base_height)
+    heading_ok = torch.abs(normalize_angle(yaw)) < max_heading_error
+
+    lift_reward = torch.exp(-torch.square(lift - target_lift) / lift_std**2)
+    knee_reward = torch.exp(-torch.square(swing_knee_flexion - target_knee_flexion) / knee_std**2)
+    valid = (
+        single_stance
+        & (forward_delta > min_forward_delta)
+        & (lift > min_lift)
+        & stance_stable
+        & balanced
+        & heading_ok
+    )
+    return torch.where(valid, lift_reward * knee_reward, torch.zeros_like(lift_reward))
+
+
 def high_obstacle_approach_reward(
     env: ManagerBasedRLEnv,
     ray_sensor_cfg: SceneEntityCfg,
