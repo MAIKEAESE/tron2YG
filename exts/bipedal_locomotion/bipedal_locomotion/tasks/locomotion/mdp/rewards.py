@@ -875,10 +875,10 @@ def forward_swing_knee_lift_reward(
     target_knee_flexion: float = 0.38,
     knee_std: float = 0.20,
     min_lift: float = 0.04,
-    max_tilt: float = 0.50,
-    min_base_height: float = 0.64,
+    max_tilt: float = 0.7,
+    min_base_height: float = 0.4,
     max_heading_error: float = 0.44,
-    max_stance_foot_speed: float = 0.12,
+    max_stance_foot_speed: float = 0.25,
     min_stance_force: float = 120.0,
     contact_threshold: float = 1.0,
 ) -> torch.Tensor:

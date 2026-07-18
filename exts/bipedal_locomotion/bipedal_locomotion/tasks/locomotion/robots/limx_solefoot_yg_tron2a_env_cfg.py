@@ -102,7 +102,7 @@ def _use_perceptive_stair_clearance(self):
     self.rewards.single_stance.weight = 0.90
     self.rewards.swing_foot_clearance = RewTerm(
         func=mdp.terrain_adaptive_swing_foot_clearance_reward,
-        weight=0.80,
+        weight=3.0,
         params={
             "sensor_cfg": SceneEntityCfg("contact_forces", body_names="ankle_pitch_.*"),
             "asset_cfg": SceneEntityCfg("robot", body_names="ankle_pitch_.*"),
@@ -148,28 +148,28 @@ def _use_perceptive_stair_clearance(self):
     )
     self.rewards.walking_single_leg_air_time = RewTerm(
         func=mdp.walking_single_leg_air_time_reward,
-        weight=0.65,
+        weight=4.0,
         params={
             "sensor_cfg": SceneEntityCfg("contact_forces", body_names="ankle_pitch_.*"),
             "asset_cfg": SceneEntityCfg("robot", body_names="ankle_pitch_.*"),
             "command_name": "base_velocity",
             "min_command_speed": 0.08,
-            "min_forward_speed": 0.05,
+            "min_forward_speed": 0.00,
             "target_air_time": 0.26,
             "air_time_std": 0.12,
             "min_air_time": 0.08,
             "max_air_time": 0.42,
-            "max_tilt": 0.50,
-            "min_base_height": 0.64,
-            "max_lateral_abs_y": 0.18,
-            "max_stance_foot_speed": 0.12,
-            "min_stance_force": 130.0,
-            "max_heading_error": math.radians(25.0),
+            "max_tilt": 0.80,
+            "min_base_height": 0.58,
+            "max_lateral_abs_y": 0.4,
+            "max_stance_foot_speed": 0.25,
+            "min_stance_force": 80.0,
+            "max_heading_error": math.radians(40.0),
         },
     )
     self.rewards.obstacle_forward_swing = RewTerm(
         func=mdp.obstacle_forward_swing_reward,
-        weight=0.85,
+        weight=4.0,
         params={
             "sensor_cfg": SceneEntityCfg("contact_forces", body_names="ankle_pitch_.*"),
             "asset_cfg": SceneEntityCfg("robot", body_names="ankle_pitch_.*"),
@@ -228,7 +228,7 @@ def _use_perceptive_stair_clearance(self):
     )
     self.rewards.obstacle_heading_error = RewTerm(
         func=mdp.obstacle_heading_error_deadband,
-        weight=-5.0,
+        weight=-1.0,
         params={
             "ray_sensor_cfg": SceneEntityCfg("height_scanner"),
             "obstacle_threshold": 0.05,
@@ -249,7 +249,7 @@ def _use_perceptive_stair_clearance(self):
     self.rewards.undesired_contacts.weight = -3.5
     self.rewards.undesired_contacts.params["threshold"] = 5.0
     self.rewards.feet_distance.weight = 0.25
-    self.rewards.double_flight.weight = -4.5
+    self.rewards.double_flight.weight = -1.5
     self.rewards.flat_orientation_l2.weight = 0.0
     self.rewards.forward_speed_shortfall.weight = 0.0
     self.rewards.same_feet_x_position.weight = 0.0
@@ -289,22 +289,22 @@ def _use_perceptive_stair_clearance(self):
     )
     self.rewards.forward_swing_knee_lift = RewTerm(
         func=mdp.forward_swing_knee_lift_reward,
-        weight=0.35,
+        weight=0.45,
         params={
             "sensor_cfg": SceneEntityCfg("contact_forces", body_names="ankle_pitch_.*"),
             "feet_cfg": SceneEntityCfg("robot", body_names="ankle_pitch_.*"),
             "knee_cfg": SceneEntityCfg("robot", joint_names="knee_[LR]_Joint"),
             "min_forward_delta": 0.04,
-            "target_lift": 0.10,
+            "target_lift": 0.3,
             "lift_std": 0.05,
-            "target_knee_flexion": 0.38,
+            "target_knee_flexion": 0.5,
             "knee_std": 0.20,
             "min_lift": 0.04,
             "max_tilt": 0.50,
             "min_base_height": 0.64,
             "max_heading_error": math.radians(25.0),
             "max_stance_foot_speed": 0.12,
-            "min_stance_force": 120.0,
+            "min_stance_force": 320.0,
         },
     )
     self.rewards.stance_knee_extension = RewTerm(
@@ -410,52 +410,10 @@ def _use_tron_camp_curriculum_resets(self):
             {"name": "platform_entry", "x_range": (42.0, 58.0), "weight": 0.06},
         ),
         "adaptive_curriculum": True,
-        "promote_distance": 5.0,
-        "demote_distance": 0.9,
+        "promote_distance": 4.0,
+        "demote_distance": 1.2,
         "max_adaptive_level": 4,
         "randomize_mastered_levels": True,
-        "adaptive_level_weights": (
-            {
-                "start_flat": 1.00,
-                "up_ramp_entry": 0.80,
-                "downhill_exit": 0.80,
-                "bumps_entry": 0.10,
-            },
-            {
-                "start_flat": 0.60,
-                "up_ramp_entry": 0.80,
-                "downhill_exit": 0.80,
-                "bumps_entry": 0.90,
-                "stairs_entry": 0.35,
-            },
-            {
-                "start_flat": 0.40,
-                "up_ramp_entry": 0.60,
-                "downhill_exit": 0.70,
-                "bumps_entry": 0.55,
-                "stairs_entry": 1.35,
-                "platform_entry": 0.10,
-            },
-            {
-                "start_flat": 0.30,
-                "up_ramp_entry": 0.40,
-                "downhill_exit": 0.50,
-                "bumps_entry": 0.30,
-                "stairs_entry": 1.35,
-                "platform_entry": 0.20,
-            },
-            {
-                "start_flat": 0.25,
-                "up_ramp_entry": 0.30,
-                "downhill_exit": 0.35,
-                "bumps_entry": 0.20,
-                "stairs_entry": 1.50,
-                "platform_entry": 0.35,
-            },
-        ),
-        # RSL-RL uses 24 rollout steps per iteration for this task. The schedule
-        # interpolates from low-height terrain to higher obstacles instead of
-        # hard-switching reset distributions.
         "phase_schedule": (
             {
                 "step": 0,
@@ -487,37 +445,41 @@ def _use_tron_camp_curriculum_resets(self):
                 },
             },
             {
+                # 熔断点 1：减缓难度爬升，锁定在温和台阶比例
                 "step": 1000 * 24,
                 "weights": {
-                    "start_flat": 0.22,
-                    "up_ramp_entry": 0.08,
-                    "downhill_exit": 0.08,
-                    "bumps_entry": 0.22,
-                    "stairs_entry": 0.38,
-                    "platform_entry": 0.02,
+                    "start_flat": 0.24,
+                    "up_ramp_entry": 0.10,
+                    "downhill_exit": 0.10,
+                    "bumps_entry": 0.25,
+                    "stairs_entry": 0.30, # 限制台阶比例不超过 0.30
+                    "platform_entry": 0.01,
                 },
             },
             {
+                # 熔断点 2：1400 轮不再升级难度，继续巩固
                 "step": 1400 * 24,
                 "weights": {
-                    "start_flat": 0.20,
-                    "up_ramp_entry": 0.06,
-                    "downhill_exit": 0.06,
-                    "bumps_entry": 0.16,
-                    "stairs_entry": 0.48,
-                    "platform_entry": 0.04,
+                    "start_flat": 0.24,
+                    "up_ramp_entry": 0.10,
+                    "downhill_exit": 0.10,
+                    "bumps_entry": 0.25,
+                    "stairs_entry": 0.30, 
+                    "platform_entry": 0.01,
                 },
             },
             {
+                # 熔断点 3：1800 轮同样不升级，彻底固化步态
                 "step": 1800 * 24,
                 "weights": {
-                    "start_flat": 0.18,
-                    "up_ramp_entry": 0.05,
-                    "downhill_exit": 0.05,
-                    "bumps_entry": 0.12,
-                    "stairs_entry": 0.52,
-                    "platform_entry": 0.08,
+                    "start_flat": 0.24,
+                    "up_ramp_entry": 0.10,
+                    "downhill_exit": 0.10,
+                    "bumps_entry": 0.25,
+                    "stairs_entry": 0.30, 
+                    "platform_entry": 0.01,
                 },
+
             },
         ),
     }
@@ -549,17 +511,18 @@ def _use_gait_stabilization_rewards(self):
     self.rewards.track_lin_vel_y_exp.params["std"] = 0.18
     self.rewards.track_ang_vel_z_exp.weight = 4.0
     self.rewards.track_ang_vel_z_exp.params["std"] = 0.20
-    self.rewards.keep_balance.weight = 0.55
+    self.rewards.keep_balance.weight = 0.35
     self.rewards.base_height_exp.weight = 0.70
     self.rewards.flat_orientation_l2.weight = -1.15
-    self.rewards.lin_vel_z_l2.weight = -0.85
+    self.rewards.lin_vel_z_l2.weight = 0.0
     self.rewards.body_lin_acc.weight = -0.004
     self.rewards.gait_reward.weight = 0.45
     self.rewards.feet_distance.weight = 0.5
     self.rewards.feet_air_time.weight = 0.0
     self.rewards.feet_slide.weight = -0.24
     self.rewards.feet_ang_slide_penalty.weight = -0.28
-    self.rewards.action_rate_l2.weight = -0.005
+    self.rewards.action_rate_l2.weight = -0.001
+    self.rewards.dof_torques_l2.weight = 0.0
     self.rewards.action_smoothness.weight = -0.00020
     self.rewards.knee_joint_orientation.weight = -0.8
     self.rewards.torques_smoothness_penalty.weight = -3.0e-7
@@ -589,7 +552,7 @@ def _use_gait_stabilization_rewards(self):
     )
     self.rewards.world_pos_y_abs = RewTerm(
         func=mdp.world_pos_y_deadband,
-        weight=-2.5,
+        weight=-0.5,
         params={"deadband": 0.20},
     )
     self.rewards.predicted_path_lateral_error = RewTerm(
@@ -633,7 +596,7 @@ def _use_gait_stabilization_rewards(self):
     )
     self.rewards.swing_foot_clearance = RewTerm(
         func=mdp.swing_foot_clearance_reward,
-        weight=0.70,
+        weight=3.0,
         params={
             "sensor_cfg": SceneEntityCfg("contact_forces", body_names="ankle_pitch_.*"),
             "asset_cfg": SceneEntityCfg("robot", body_names="ankle_pitch_.*"),
