@@ -160,7 +160,7 @@ def _use_perceptive_stair_clearance(self):
             "min_air_time": 0.08,
             "max_air_time": 0.42,
             "max_tilt": 0.80,
-            "min_base_height": 0.58,
+            "min_base_height": 0.50,
             "max_lateral_abs_y": 0.4,
             "max_stance_foot_speed": 0.25,
             "min_stance_force": 80.0,
@@ -248,14 +248,12 @@ def _use_perceptive_stair_clearance(self):
     )
     self.rewards.undesired_contacts.weight = -3.5
     self.rewards.undesired_contacts.params["threshold"] = 5.0
-    self.rewards.feet_distance.weight = 0.25
-    self.rewards.feet_slide.weight = -0.12
-    self.rewards.foot_contact_force.weight = -0.0004
+    self.rewards.feet_distance.weight = 0.4
+    self.rewards.feet_distance.params["max_dist"] = 0.35  # 致命一击：把 60cm 的劈叉极限死死按在 35cm
+    self.rewards.feet_distance.params["desired_dist"] = 0.25 # 将目标间距收缩到肩宽/髋宽范围内
     self.rewards.double_flight.weight = -1.5
     self.rewards.flat_orientation_l2.weight = 0.0
     self.rewards.forward_speed_shortfall.weight = 0.0
-    self.rewards.world_lin_vel_y_abs.weight = -1.0
-    self.rewards.predicted_path_lateral_error.weight = -0.8
     self.rewards.same_feet_x_position.weight = 0.0
     self.rewards.single_stance_feet_x_separation.weight = 0.0
     self.rewards.single_stance_feet_x_separation.params["target_distance"] = 0.12
@@ -299,7 +297,7 @@ def _use_perceptive_stair_clearance(self):
             "feet_cfg": SceneEntityCfg("robot", body_names="ankle_pitch_.*"),
             "knee_cfg": SceneEntityCfg("robot", joint_names="knee_[LR]_Joint"),
             "min_forward_delta": 0.04,
-            "target_lift": 0.3,
+            "target_lift": 0.15,
             "lift_std": 0.05,
             "target_knee_flexion": 0.5,
             "knee_std": 0.20,
@@ -309,22 +307,6 @@ def _use_perceptive_stair_clearance(self):
             "max_heading_error": math.radians(25.0),
             "max_stance_foot_speed": 0.12,
             "min_stance_force": 320.0,
-        },
-    )
-    self.rewards.linear_forward_swing_lift = RewTerm(
-        func=mdp.linear_forward_swing_lift_reward,
-        weight=0.015,
-        params={
-            "sensor_cfg": SceneEntityCfg("contact_forces", body_names="ankle_pitch_.*"),
-            "asset_cfg": SceneEntityCfg("robot", body_names="ankle_pitch_.*"),
-            "min_forward_delta": 0.03,
-            "min_lift": 0.02,
-            "max_lift": 0.16,
-            "max_tilt": 0.80,
-            "min_base_height": 0.58,
-            "max_heading_error": math.radians(40.0),
-            "max_stance_foot_speed": 0.25,
-            "min_stance_force": 80.0,
         },
     )
     self.rewards.stance_knee_extension = RewTerm(
@@ -419,7 +401,7 @@ def _use_forward_walking_rewards(self):
     self.rewards.gait_reward.weight = 0.45
     self.rewards.feet_distance.weight = 0.7
     self.rewards.feet_air_time.weight = 0.0
-    self.rewards.feet_slide.weight = -0.08
+    self.rewards.feet_slide.weight = -0.18
     self.rewards.action_rate_l2.weight = -0.02
     self.rewards.action_smoothness.weight = -0.0008
     self.rewards.same_feet_x_position = RewTerm(
