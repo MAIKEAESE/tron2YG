@@ -931,6 +931,67 @@ def forward_swing_knee_lift_reward(
     return torch.where(valid, lift_reward * knee_reward, torch.zeros_like(lift_reward))
 
 
+def linear_forward_swing_lift_reward(
+    env: ManagerBasedRLEnv,
+    sensor_cfg: SceneEntityCfg,
+    asset_cfg: SceneEntityCfg,
+    min_forward_delta: float = 0.03,
+    min_lift: float = 0.02,
+    max_lift: float = 0.16,
+    max_tilt: float = 0.80,
+    min_base_height: float = 0.58,
+    max_heading_error: float = 0.70,
+    max_stance_foot_speed: float = 0.25,
+    min_stance_force: float = 80.0,
+    contact_threshold: float = 1.0,
+) -> torch.Tensor:
+    """Give a linear shaping reward for lifting the forward swing foot higher.
+
+    The returned value is measured in centimeters above ``min_lift`` and capped
+    at ``max_lift``. With a small term weight this behaves like "one more
+    centimeter, one more small reward" without creating an unreachable target.
+    """
+    contact_sensor: ContactSensor = env.scene.sensors[sensor_cfg.name]
+    current_force = contact_sensor.data.net_forces_w[:, sensor_cfg.body_ids, :].norm(dim=-1)
+    current_contact_time = contact_sensor.data.current_contact_time[:, sensor_cfg.body_ids]
+    contacts = (current_force > contact_threshold) & (current_contact_time > 0.0)
+    single_stance = torch.sum(contacts.int(), dim=1) == 1
+    swing_mask = (~contacts) & single_stance.unsqueeze(-1)
+    stance_mask = contacts & single_stance.unsqueeze(-1)
+
+    asset: Articulation = env.scene[asset_cfg.name]
+    feet_pos_w = asset.data.body_link_pos_w[:, asset_cfg.body_ids]
+    base_quat = asset.data.root_link_quat_w.unsqueeze(1).expand(-1, feet_pos_w.shape[1], -1)
+    base_pos = asset.data.root_link_state_w[:, :3].unsqueeze(1).expand(-1, feet_pos_w.shape[1], -1)
+    feet_pos_b = math_utils.quat_apply_inverse(base_quat, feet_pos_w - base_pos)
+
+    swing_x = torch.sum(feet_pos_b[:, :, 0] * swing_mask.float(), dim=1)
+    stance_x = torch.sum(feet_pos_b[:, :, 0] * stance_mask.float(), dim=1)
+    forward_delta = swing_x - stance_x
+    swing_z = torch.sum(feet_pos_b[:, :, 2] * swing_mask.float(), dim=1)
+    stance_z = torch.sum(feet_pos_b[:, :, 2] * stance_mask.float(), dim=1)
+    lift = swing_z - stance_z
+
+    foot_speed_xy = torch.norm(asset.data.body_lin_vel_w[:, asset_cfg.body_ids, :2], dim=-1)
+    stance_foot_speed = torch.sum(foot_speed_xy * stance_mask.float(), dim=1)
+    stance_force = torch.sum(current_force * stance_mask.float(), dim=1)
+    stance_stable = (stance_foot_speed < max_stance_foot_speed) & (stance_force > min_stance_force)
+
+    tilt = torch.norm(asset.data.projected_gravity_b[:, :2], dim=1)
+    _, _, yaw = math_utils.euler_xyz_from_quat(asset.data.root_quat_w)
+    valid = (
+        single_stance
+        & (forward_delta > min_forward_delta)
+        & stance_stable
+        & (tilt < max_tilt)
+        & (asset.data.root_pos_w[:, 2] > min_base_height)
+        & (torch.abs(normalize_angle(yaw)) < max_heading_error)
+    )
+
+    lift_cm = torch.clamp(lift - min_lift, min=0.0, max=max_lift - min_lift) * 100.0
+    return torch.where(valid, lift_cm, torch.zeros_like(lift_cm))
+
+
 def high_obstacle_approach_reward(
     env: ManagerBasedRLEnv,
     ray_sensor_cfg: SceneEntityCfg,
