@@ -359,10 +359,28 @@ def _use_stand_lift_fast_convergence(self):
 
     self.rewards.swing_foot_clearance.weight = 2.2
     self.rewards.swing_foot_liftoff.weight = 0.55
-    self.rewards.linear_forward_swing_lift.weight = 0.015
-    self.rewards.linear_forward_swing_lift.params["min_lift"] = 0.015
-    self.rewards.linear_forward_swing_lift.params["max_lift"] = 0.18
-    self.rewards.linear_forward_swing_lift.params["min_base_height"] = 0.60
+    if not hasattr(self.rewards, "linear_forward_swing_lift"):
+        self.rewards.linear_forward_swing_lift = RewTerm(
+            func=mdp.linear_forward_swing_lift_reward,
+            weight=0.015,
+            params={
+                "sensor_cfg": SceneEntityCfg("contact_forces", body_names="ankle_pitch_.*"),
+                "asset_cfg": SceneEntityCfg("robot", body_names="ankle_pitch_.*"),
+                "min_forward_delta": 0.03,
+                "min_lift": 0.015,
+                "max_lift": 0.18,
+                "max_tilt": 0.80,
+                "min_base_height": 0.60,
+                "max_heading_error": math.radians(40.0),
+                "max_stance_foot_speed": 0.25,
+                "min_stance_force": 80.0,
+            },
+        )
+    else:
+        self.rewards.linear_forward_swing_lift.weight = 0.015
+        self.rewards.linear_forward_swing_lift.params["min_lift"] = 0.015
+        self.rewards.linear_forward_swing_lift.params["max_lift"] = 0.18
+        self.rewards.linear_forward_swing_lift.params["min_base_height"] = 0.60
     self.rewards.forward_swing_knee_lift.weight = 0.35
     self.rewards.forward_swing_knee_lift.params["target_lift"] = 0.20
     self.rewards.forward_swing_knee_lift.params["min_lift"] = 0.035
