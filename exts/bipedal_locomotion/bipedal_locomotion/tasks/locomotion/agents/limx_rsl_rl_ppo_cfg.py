@@ -151,6 +151,30 @@ class SFYG_TRON2APerceptiveGaitPPORunnerCfg(SFYG_TRON2AGaitPPORunnerCfg):
 
 #-----------------------------------------------------------------
 @configclass
+class SFYG_TRON2APerceptiveStandLiftPPORunnerCfg(SFYG_TRON2APerceptiveGaitPPORunnerCfg):
+    max_iterations = 3000
+    save_interval = 100
+    experiment_name = "sfyg_tron_2a_perceptive_stand_lift"
+    algorithm = RslRlPpoAlgorithmMlpCfg(
+        class_name="PPO",
+        value_loss_coef=1.0,
+        use_clipped_value_loss=True,
+        clip_param=0.2,
+        entropy_coef=0.006,
+        num_learning_epochs=5,
+        num_mini_batches=4,
+        learning_rate=1.0e-3,
+        schedule="adaptive",
+        gamma=0.99,
+        lam=0.95,
+        desired_kl=0.01,
+        max_grad_norm=1.0,
+        obs_history_len=10,
+    )
+
+
+#-----------------------------------------------------------------
+@configclass
 class SFYG_TRON2APerceptiveRandomDirPPORunnerCfg(SFYG_TRON2APerceptiveGaitPPORunnerCfg):
     max_iterations = 4000
     save_interval = 100

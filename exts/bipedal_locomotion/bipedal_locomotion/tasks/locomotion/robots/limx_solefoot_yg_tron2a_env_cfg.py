@@ -338,6 +338,64 @@ def _use_perceptive_stair_clearance(self):
     )
 
 
+def _use_stand_lift_fast_convergence(self):
+    """Fresh stand-checkpoint line: strict width, early lift, and staged obstacle exposure."""
+    self.commands.base_velocity.rel_standing_envs = 0.08
+    self.commands.base_velocity.ranges.lin_vel_x = (0.14, 0.42)
+    self.commands.gait_command.ranges.frequencies = (0.45, 0.68)
+    self.commands.gait_command.ranges.durations = (0.60, 0.74)
+    self.commands.gait_command.ranges.swing_height = (0.14, 0.24)
+
+    self.rewards.keep_balance.weight = 0.75
+    self.rewards.base_height_exp.weight = 0.90
+    self.rewards.flat_orientation_l2.weight = -0.45
+    self.rewards.track_world_lin_vel_x_exp.weight = 4.0
+    self.rewards.track_lin_vel_x_exp.weight = 2.8
+    self.rewards.forward_speed_shortfall.weight = -1.0
+    self.rewards.predicted_path_lateral_error.weight = -0.8
+    self.rewards.world_lin_vel_y_abs.weight = -0.8
+    self.rewards.world_pos_y_abs.weight = -0.35
+    self.rewards.world_pos_y_abs.params["deadband"] = 0.24
+
+    self.rewards.feet_distance.weight = 0.85
+    self.rewards.feet_distance.params["min_dist"] = 0.16
+    self.rewards.feet_distance.params["max_dist"] = 0.35
+    self.rewards.feet_distance.params["desired_dist"] = 0.28
+    self.rewards.feet_distance.params["std"] = 0.08
+    self.rewards.feet_slide.weight = -0.18
+    self.rewards.foot_contact_force.weight = -0.0004
+    self.rewards.double_flight.weight = -1.2
+
+    self.rewards.single_stance.weight = 1.05
+    self.rewards.walking_single_leg_air_time.weight = 3.0
+    self.rewards.walking_single_leg_air_time.params["target_air_time"] = 0.24
+    self.rewards.walking_single_leg_air_time.params["max_air_time"] = 0.38
+    self.rewards.walking_single_leg_air_time.params["min_base_height"] = 0.60
+    self.rewards.walking_single_leg_air_time.params["min_stance_force"] = 130.0
+    self.rewards.stance_foot_stability.weight = 2.4
+    self.rewards.stance_knee_extension.weight = 0.95
+
+    self.rewards.swing_foot_clearance.weight = 2.2
+    self.rewards.swing_foot_liftoff.weight = 0.55
+    self.rewards.linear_forward_swing_lift.weight = 0.015
+    self.rewards.linear_forward_swing_lift.params["min_lift"] = 0.015
+    self.rewards.linear_forward_swing_lift.params["max_lift"] = 0.18
+    self.rewards.linear_forward_swing_lift.params["min_base_height"] = 0.60
+    self.rewards.forward_swing_knee_lift.weight = 0.35
+    self.rewards.forward_swing_knee_lift.params["target_lift"] = 0.20
+    self.rewards.forward_swing_knee_lift.params["min_lift"] = 0.035
+    self.rewards.forward_swing_knee_lift.params["min_base_height"] = 0.60
+    self.rewards.forward_swing_knee_lift.params["min_stance_force"] = 180.0
+    self.rewards.swing_knee_flexion.weight = 0.12
+    self.rewards.swing_knee_flexion.params["target_flexion"] = 0.36
+
+    self.rewards.obstacle_forward_swing.weight = 2.4
+    self.rewards.obstacle_approach_progress.weight = 0.75
+    self.rewards.obstacle_heading_error.weight = -0.8
+    self.rewards.obstacle_heading_alignment.weight = 1.4
+    self.rewards.high_obstacle_approach.weight = 0.45
+
+
 def _use_forward_walking_commands(self):
     self.commands.base_velocity.heading_command = True
     self.commands.base_velocity.rel_standing_envs = 0.0
@@ -503,6 +561,57 @@ def _use_tron_camp_curriculum_resets(self):
             },
         ),
     }
+
+
+def _use_stand_lift_curriculum_resets(self):
+    _use_tron_camp_curriculum_resets(self)
+    if self.events.reset_robot_base is None:
+        return
+    self.events.reset_robot_base.params["promote_distance"] = 3.0
+    self.events.reset_robot_base.params["demote_distance"] = 0.8
+    self.events.reset_robot_base.params["max_adaptive_level"] = 3
+    self.events.reset_robot_base.params["phase_schedule"] = (
+        {
+            "step": 0,
+            "weights": {
+                "start_flat": 0.70,
+                "up_ramp_entry": 0.18,
+                "downhill_exit": 0.12,
+            },
+        },
+        {
+            "step": 200 * 24,
+            "weights": {
+                "start_flat": 0.42,
+                "up_ramp_entry": 0.18,
+                "downhill_exit": 0.15,
+                "bumps_entry": 0.15,
+                "stairs_entry": 0.10,
+            },
+        },
+        {
+            "step": 600 * 24,
+            "weights": {
+                "start_flat": 0.22,
+                "up_ramp_entry": 0.12,
+                "downhill_exit": 0.12,
+                "bumps_entry": 0.24,
+                "stairs_entry": 0.28,
+                "platform_entry": 0.02,
+            },
+        },
+        {
+            "step": 1000 * 24,
+            "weights": {
+                "start_flat": 0.18,
+                "up_ramp_entry": 0.10,
+                "downhill_exit": 0.10,
+                "bumps_entry": 0.22,
+                "stairs_entry": 0.36,
+                "platform_entry": 0.04,
+            },
+        },
+    )
 
 
 def _use_gait_stabilization_commands(self):
@@ -921,6 +1030,34 @@ class SFYG_TRON2A_PerceptiveGaitTronCampEnvCfg_PLAY(SFYG_TRON2A_BlindGaitTronCam
         _use_base_height_scanner(self)
         _use_policy_height_scan(self)
         _use_perceptive_stair_clearance(self)
+        _use_obstacle_heading_termination(
+            self,
+            limit_angle=math.radians(50.0),
+            obstacle_threshold=0.12,
+        )
+        self.scene.num_envs = 1
+
+
+@configclass
+class SFYG_TRON2A_PerceptiveStandLiftTronCampEnvCfg(SFYG_TRON2A_BlindGaitTronCampEnvCfg):
+    def __post_init__(self):
+        super().__post_init__()
+        _use_base_height_scanner(self)
+        _use_policy_height_scan(self)
+        _use_perceptive_stair_clearance(self)
+        _use_stand_lift_fast_convergence(self)
+        _use_competition_exposure_training(self)
+        _use_stand_lift_curriculum_resets(self)
+
+
+@configclass
+class SFYG_TRON2A_PerceptiveStandLiftTronCampEnvCfg_PLAY(SFYG_TRON2A_BlindGaitTronCampEnvCfg_PLAY):
+    def __post_init__(self):
+        super().__post_init__()
+        _use_base_height_scanner(self)
+        _use_policy_height_scan(self)
+        _use_perceptive_stair_clearance(self)
+        _use_stand_lift_fast_convergence(self)
         _use_obstacle_heading_termination(
             self,
             limit_angle=math.radians(50.0),
