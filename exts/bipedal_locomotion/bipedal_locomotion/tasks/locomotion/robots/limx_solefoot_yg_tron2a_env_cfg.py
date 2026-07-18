@@ -254,8 +254,8 @@ def _use_perceptive_stair_clearance(self):
     self.rewards.double_flight.weight = -1.5
     self.rewards.flat_orientation_l2.weight = 0.0
     self.rewards.forward_speed_shortfall.weight = 0.0
-    self.rewards.world_lin_vel_y_abs.weight = -0.4
-    self.rewards.predicted_path_lateral_error.weight = -0.3
+    self.rewards.world_lin_vel_y_abs.weight = -1.0
+    self.rewards.predicted_path_lateral_error.weight = -0.8
     self.rewards.same_feet_x_position.weight = 0.0
     self.rewards.single_stance_feet_x_separation.weight = 0.0
     self.rewards.single_stance_feet_x_separation.params["target_distance"] = 0.12
@@ -313,7 +313,7 @@ def _use_perceptive_stair_clearance(self):
     )
     self.rewards.linear_forward_swing_lift = RewTerm(
         func=mdp.linear_forward_swing_lift_reward,
-        weight=0.025,
+        weight=0.015,
         params={
             "sensor_cfg": SceneEntityCfg("contact_forces", body_names="ankle_pitch_.*"),
             "asset_cfg": SceneEntityCfg("robot", body_names="ankle_pitch_.*"),
