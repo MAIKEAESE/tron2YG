@@ -249,9 +249,13 @@ def _use_perceptive_stair_clearance(self):
     self.rewards.undesired_contacts.weight = -3.5
     self.rewards.undesired_contacts.params["threshold"] = 5.0
     self.rewards.feet_distance.weight = 0.25
+    self.rewards.feet_slide.weight = -0.12
+    self.rewards.foot_contact_force.weight = -0.0004
     self.rewards.double_flight.weight = -1.5
     self.rewards.flat_orientation_l2.weight = 0.0
     self.rewards.forward_speed_shortfall.weight = 0.0
+    self.rewards.world_lin_vel_y_abs.weight = -0.4
+    self.rewards.predicted_path_lateral_error.weight = -0.3
     self.rewards.same_feet_x_position.weight = 0.0
     self.rewards.single_stance_feet_x_separation.weight = 0.0
     self.rewards.single_stance_feet_x_separation.params["target_distance"] = 0.12
