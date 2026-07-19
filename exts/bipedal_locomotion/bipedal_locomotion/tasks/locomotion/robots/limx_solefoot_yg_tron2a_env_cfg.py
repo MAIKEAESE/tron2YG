@@ -260,8 +260,9 @@ def _use_perceptive_stair_clearance(self):
     self.rewards.base_height_exp.weight = 0.95
     self.rewards.base_height_exp.params["target_height"] = 0.74
     self.rewards.feet_distance.weight = 0.4
-    self.rewards.feet_distance.params["max_dist"] = 0.35  # 致命一击：把 60cm 的劈叉极限死死按在 35cm
-    self.rewards.feet_distance.params["desired_dist"] = 0.25 # 将目标间距收缩到肩宽/髋宽范围内
+    # feet_distance only constrains lateral Y stance width; forward X stride is shaped separately below.
+    self.rewards.feet_distance.params["max_dist"] = 0.35
+    self.rewards.feet_distance.params["desired_dist"] = 0.25
     self.rewards.double_flight.weight = -1.5
     self.rewards.flat_orientation_l2.weight = 0.0
     self.rewards.forward_speed_shortfall.weight = 0.0
@@ -271,9 +272,9 @@ def _use_perceptive_stair_clearance(self):
     self.rewards.dof_vel_l2.weight = -2.0e-4
     self.rewards.dof_acc_l2.weight = -2.0e-6
     self.rewards.same_feet_x_position.weight = 0.0
-    self.rewards.single_stance_feet_x_separation.weight = 0.0
-    self.rewards.single_stance_feet_x_separation.params["target_distance"] = 0.12
-    self.rewards.single_stance_feet_x_separation.params["std"] = 0.10
+    self.rewards.single_stance_feet_x_separation.weight = 0.45
+    self.rewards.single_stance_feet_x_separation.params["target_distance"] = 0.30
+    self.rewards.single_stance_feet_x_separation.params["std"] = 0.14
     self.rewards.balanced_feet_x_symmetry.weight = 0.80
     self.rewards.balanced_feet_x_symmetry.params["std"] = 0.12
     self.rewards.foot_joint_orientation.weight = -0.11
@@ -363,6 +364,9 @@ def _use_stand_lift_fast_convergence(self):
     self.rewards.feet_distance.params["max_dist"] = 0.35
     self.rewards.feet_distance.params["desired_dist"] = 0.28
     self.rewards.feet_distance.params["std"] = 0.08
+    self.rewards.single_stance_feet_x_separation.weight = 0.45
+    self.rewards.single_stance_feet_x_separation.params["target_distance"] = 0.30
+    self.rewards.single_stance_feet_x_separation.params["std"] = 0.14
     self.rewards.feet_slide.weight = -0.18
     self.rewards.foot_contact_force.weight = -0.0004
     self.rewards.double_flight.weight = -1.2
