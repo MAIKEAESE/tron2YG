@@ -148,17 +148,17 @@ def _use_perceptive_stair_clearance(self):
     )
     self.rewards.walking_single_leg_air_time = RewTerm(
         func=mdp.walking_single_leg_air_time_reward,
-        weight=4.0,
+        weight=5.0,
         params={
             "sensor_cfg": SceneEntityCfg("contact_forces", body_names="ankle_pitch_.*"),
             "asset_cfg": SceneEntityCfg("robot", body_names="ankle_pitch_.*"),
             "command_name": "base_velocity",
             "min_command_speed": 0.08,
             "min_forward_speed": 0.00,
-            "target_air_time": 0.26,
+            "target_air_time": 0.30,
             "air_time_std": 0.12,
-            "min_air_time": 0.08,
-            "max_air_time": 0.42,
+            "min_air_time": 0.14,
+            "max_air_time": 0.48,
             "max_tilt": 0.80,
             "min_base_height": 0.50,
             "max_lateral_abs_y": 0.4,
@@ -254,6 +254,9 @@ def _use_perceptive_stair_clearance(self):
     self.rewards.double_flight.weight = -1.5
     self.rewards.flat_orientation_l2.weight = 0.0
     self.rewards.forward_speed_shortfall.weight = 0.0
+    self.rewards.action_rate_l2.weight = -0.05
+    self.rewards.dof_vel_l2.weight = -2.0e-4
+    self.rewards.dof_acc_l2.weight = -2.0e-6
     self.rewards.same_feet_x_position.weight = 0.0
     self.rewards.single_stance_feet_x_separation.weight = 0.0
     self.rewards.single_stance_feet_x_separation.params["target_distance"] = 0.12
@@ -349,13 +352,17 @@ def _use_stand_lift_fast_convergence(self):
     self.rewards.double_flight.weight = -1.2
 
     self.rewards.single_stance.weight = 1.05
-    self.rewards.walking_single_leg_air_time.weight = 3.0
-    self.rewards.walking_single_leg_air_time.params["target_air_time"] = 0.24
-    self.rewards.walking_single_leg_air_time.params["max_air_time"] = 0.38
+    self.rewards.walking_single_leg_air_time.weight = 5.0
+    self.rewards.walking_single_leg_air_time.params["target_air_time"] = 0.30
+    self.rewards.walking_single_leg_air_time.params["min_air_time"] = 0.14
+    self.rewards.walking_single_leg_air_time.params["max_air_time"] = 0.48
     self.rewards.walking_single_leg_air_time.params["min_base_height"] = 0.60
     self.rewards.walking_single_leg_air_time.params["min_stance_force"] = 130.0
     self.rewards.stance_foot_stability.weight = 2.4
     self.rewards.stance_knee_extension.weight = 0.95
+    self.rewards.action_rate_l2.weight = -0.05
+    self.rewards.dof_vel_l2.weight = -2.0e-4
+    self.rewards.dof_acc_l2.weight = -2.0e-6
 
     self.rewards.swing_foot_clearance.weight = 2.2
     self.rewards.swing_foot_liftoff.weight = 0.55
