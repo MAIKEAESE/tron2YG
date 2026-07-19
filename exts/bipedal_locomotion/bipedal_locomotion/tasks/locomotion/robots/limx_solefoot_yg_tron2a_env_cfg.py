@@ -265,6 +265,8 @@ def _use_perceptive_stair_clearance(self):
     self.rewards.double_flight.weight = -1.5
     self.rewards.flat_orientation_l2.weight = 0.0
     self.rewards.forward_speed_shortfall.weight = 0.0
+    self.rewards.world_lin_vel_y_abs.weight = -0.1
+    self.rewards.predicted_path_lateral_error.weight = -0.2
     self.rewards.action_rate_l2.weight = -0.05
     self.rewards.dof_vel_l2.weight = -2.0e-4
     self.rewards.dof_acc_l2.weight = -2.0e-6
@@ -274,7 +276,7 @@ def _use_perceptive_stair_clearance(self):
     self.rewards.single_stance_feet_x_separation.params["std"] = 0.10
     self.rewards.balanced_feet_x_symmetry.weight = 0.80
     self.rewards.balanced_feet_x_symmetry.params["std"] = 0.12
-    self.rewards.foot_joint_orientation.weight = -0.16
+    self.rewards.foot_joint_orientation.weight = -0.11
     self.rewards.stance_foot_stability = RewTerm(
         func=mdp.stance_foot_stability_reward,
         weight=2.00,
@@ -347,12 +349,12 @@ def _use_stand_lift_fast_convergence(self):
 
     self.rewards.keep_balance.weight = 0.75
     self.rewards.base_height_exp.weight = 0.90
-    self.rewards.flat_orientation_l2.weight = -0.45
+    self.rewards.flat_orientation_l2.weight = -0.15
     self.rewards.track_world_lin_vel_x_exp.weight = 4.0
     self.rewards.track_lin_vel_x_exp.weight = 2.8
     self.rewards.forward_speed_shortfall.weight = -1.0
-    self.rewards.predicted_path_lateral_error.weight = -0.8
-    self.rewards.world_lin_vel_y_abs.weight = -0.8
+    self.rewards.predicted_path_lateral_error.weight = -0.2
+    self.rewards.world_lin_vel_y_abs.weight = -0.1
     self.rewards.world_pos_y_abs.weight = -0.35
     self.rewards.world_pos_y_abs.params["deadband"] = 0.24
 
@@ -387,7 +389,7 @@ def _use_stand_lift_fast_convergence(self):
     self.rewards.dof_acc_l2.weight = -2.0e-6
     self.rewards.balanced_feet_x_symmetry.weight = 0.85
     self.rewards.balanced_feet_x_symmetry.params["std"] = 0.12
-    self.rewards.foot_joint_orientation.weight = -0.16
+    self.rewards.foot_joint_orientation.weight = -0.11
 
     self.rewards.swing_foot_clearance.weight = 2.2
     self.rewards.swing_foot_liftoff.weight = 0.55
