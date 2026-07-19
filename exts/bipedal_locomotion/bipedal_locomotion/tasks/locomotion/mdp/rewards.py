@@ -593,6 +593,24 @@ def walking_single_leg_air_time_reward(
     return torch.where(valid, air_time_reward, torch.zeros_like(air_time_reward))
 
 
+def single_leg_air_time_overrun_penalty(
+    env: ManagerBasedRLEnv,
+    sensor_cfg: SceneEntityCfg,
+    max_air_time: float = 0.40,
+    threshold: float = 1.0,
+) -> torch.Tensor:
+    """Penalize swing phases that keep one foot airborne too long."""
+    contact_sensor: ContactSensor = env.scene.sensors[sensor_cfg.name]
+    current_force = contact_sensor.data.net_forces_w[:, sensor_cfg.body_ids, :].norm(dim=-1)
+    current_contact_time = contact_sensor.data.current_contact_time[:, sensor_cfg.body_ids]
+    contacts = (current_force > threshold) & (current_contact_time > 0.0)
+    single_stance = torch.sum(contacts.int(), dim=1) == 1
+
+    air_time = contact_sensor.data.current_air_time[:, sensor_cfg.body_ids]
+    swing_air_time = torch.sum(torch.where(~contacts, air_time, torch.zeros_like(air_time)), dim=1)
+    return torch.where(single_stance, torch.clamp(swing_air_time - max_air_time, min=0.0), torch.zeros_like(swing_air_time))
+
+
 def swing_foot_clearance_reward(
     env: ManagerBasedRLEnv,
     sensor_cfg: SceneEntityCfg,

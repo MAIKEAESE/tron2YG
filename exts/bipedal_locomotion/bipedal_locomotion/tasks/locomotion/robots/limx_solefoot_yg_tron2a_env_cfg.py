@@ -158,13 +158,21 @@ def _use_perceptive_stair_clearance(self):
             "target_air_time": 0.30,
             "air_time_std": 0.12,
             "min_air_time": 0.14,
-            "max_air_time": 0.48,
+            "max_air_time": 0.40,
             "max_tilt": 0.80,
-            "min_base_height": 0.50,
+            "min_base_height": 0.58,
             "max_lateral_abs_y": 0.4,
             "max_stance_foot_speed": 0.25,
             "min_stance_force": 80.0,
             "max_heading_error": math.radians(40.0),
+        },
+    )
+    self.rewards.single_leg_air_time_overrun = RewTerm(
+        func=mdp.single_leg_air_time_overrun_penalty,
+        weight=-3.0,
+        params={
+            "sensor_cfg": SceneEntityCfg("contact_forces", body_names="ankle_pitch_.*"),
+            "max_air_time": 0.40,
         },
     )
     self.rewards.obstacle_forward_swing = RewTerm(
@@ -248,6 +256,9 @@ def _use_perceptive_stair_clearance(self):
     )
     self.rewards.undesired_contacts.weight = -3.5
     self.rewards.undesired_contacts.params["threshold"] = 5.0
+    self.rewards.keep_balance.weight = 0.85
+    self.rewards.base_height_exp.weight = 0.95
+    self.rewards.base_height_exp.params["target_height"] = 0.74
     self.rewards.feet_distance.weight = 0.4
     self.rewards.feet_distance.params["max_dist"] = 0.35  # 致命一击：把 60cm 的劈叉极限死死按在 35cm
     self.rewards.feet_distance.params["desired_dist"] = 0.25 # 将目标间距收缩到肩宽/髋宽范围内
@@ -261,6 +272,9 @@ def _use_perceptive_stair_clearance(self):
     self.rewards.single_stance_feet_x_separation.weight = 0.0
     self.rewards.single_stance_feet_x_separation.params["target_distance"] = 0.12
     self.rewards.single_stance_feet_x_separation.params["std"] = 0.10
+    self.rewards.balanced_feet_x_symmetry.weight = 0.80
+    self.rewards.balanced_feet_x_symmetry.params["std"] = 0.12
+    self.rewards.foot_joint_orientation.weight = -0.16
     self.rewards.stance_foot_stability = RewTerm(
         func=mdp.stance_foot_stability_reward,
         weight=2.00,
@@ -355,14 +369,25 @@ def _use_stand_lift_fast_convergence(self):
     self.rewards.walking_single_leg_air_time.weight = 5.0
     self.rewards.walking_single_leg_air_time.params["target_air_time"] = 0.30
     self.rewards.walking_single_leg_air_time.params["min_air_time"] = 0.14
-    self.rewards.walking_single_leg_air_time.params["max_air_time"] = 0.48
-    self.rewards.walking_single_leg_air_time.params["min_base_height"] = 0.60
+    self.rewards.walking_single_leg_air_time.params["max_air_time"] = 0.40
+    self.rewards.walking_single_leg_air_time.params["min_base_height"] = 0.64
     self.rewards.walking_single_leg_air_time.params["min_stance_force"] = 130.0
+    self.rewards.single_leg_air_time_overrun = RewTerm(
+        func=mdp.single_leg_air_time_overrun_penalty,
+        weight=-3.0,
+        params={
+            "sensor_cfg": SceneEntityCfg("contact_forces", body_names="ankle_pitch_.*"),
+            "max_air_time": 0.40,
+        },
+    )
     self.rewards.stance_foot_stability.weight = 2.4
     self.rewards.stance_knee_extension.weight = 0.95
     self.rewards.action_rate_l2.weight = -0.05
     self.rewards.dof_vel_l2.weight = -2.0e-4
     self.rewards.dof_acc_l2.weight = -2.0e-6
+    self.rewards.balanced_feet_x_symmetry.weight = 0.85
+    self.rewards.balanced_feet_x_symmetry.params["std"] = 0.12
+    self.rewards.foot_joint_orientation.weight = -0.16
 
     self.rewards.swing_foot_clearance.weight = 2.2
     self.rewards.swing_foot_liftoff.weight = 0.55
