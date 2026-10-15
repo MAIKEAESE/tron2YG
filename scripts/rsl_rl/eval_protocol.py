@@ -55,6 +55,8 @@ parser.add_argument("--x_bumps", type=float, default=16.0, help="Local-x where t
 parser.add_argument("--x_stairs", type=float, default=24.0, help="Local-x where the stairs section begins.")
 parser.add_argument("--x_past_stairs", type=float, default=39.0, help="Local-x past the last stair.")
 parser.add_argument("--x_platform", type=float, default=42.0, help="Local-x where the final platform begins.")
+# append RSL-RL cli args: parse_rsl_rl_cfg expects flags like --resume on the namespace
+cli_args.add_rsl_rl_args(parser)
 # append AppLauncher cli args
 AppLauncher.add_app_launcher_args(parser)
 args_cli, hydra_args = parser.parse_known_args()
