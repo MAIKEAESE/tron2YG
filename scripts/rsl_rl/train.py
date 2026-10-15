@@ -24,6 +24,7 @@ parser.add_argument("--save_interval", type=int, default=None, help="The number 
 parser.add_argument("--task", type=str, default=None, help="Name of the task.")
 parser.add_argument("--seed", type=int, default=None, help="Seed used for the environment")
 parser.add_argument("--checkpoint_path", type=str, default=None, help="Relative path to checkpoint file.")
+parser.add_argument("--checkpoint_url", type=str, default=None, help="Signed OSS URL; downloaded to a temp file when checkpoint_path is absent.")
 
 # append RSL-RL cli arguments
 cli_args.add_rsl_rl_args(parser)
@@ -128,6 +129,14 @@ def main():
     # write git state to logs
     # runner.add_git_repo_to_log(__file__)
     # save resume path before creating a new log_dir
+    if agent_cfg.resume and args_cli.checkpoint_path is None and args_cli.checkpoint_url is not None:
+        import tempfile
+        import urllib.request
+
+        dest = os.path.join(tempfile.gettempdir(), "resume_ckpt.pt")
+        print(f"[INFO] downloading resume checkpoint from signed URL -> {dest}", file=sys.stderr, flush=True)
+        urllib.request.urlretrieve(args_cli.checkpoint_url, dest)
+        args_cli.checkpoint_path = dest
     if agent_cfg.resume:
         # get path to previous checkpoint
         if args_cli.checkpoint_path is not None:
