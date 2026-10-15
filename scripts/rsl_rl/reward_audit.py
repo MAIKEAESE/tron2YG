@@ -120,8 +120,8 @@ def main():
         for term_idx, (_, term_cfg) in enumerate(terms):
             value = term_cfg.func(env.unwrapped, **term_cfg.params) * term_cfg.weight * dt
             step_raw[:, term_idx] = value
-        raw_all[:, step * num_envs : (step + 1) * num_envs] = step_raw
-        weighted_all[:, step * num_envs : (step + 1) * num_envs] = step_raw
+        raw_all[:, step * num_envs : (step + 1) * num_envs] = step_raw.t()
+        weighted_all[:, step * num_envs : (step + 1) * num_envs] = step_raw.t()
         ep_sum += step_raw
 
         ring[ring_ptr] = step_raw
