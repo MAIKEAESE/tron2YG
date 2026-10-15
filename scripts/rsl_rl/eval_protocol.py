@@ -158,22 +158,20 @@ def main():
                 done_mask |= torch.ones_like(done_mask)  # safety cap counts as stuck
 
             if done_mask.any():
-                time_out = base_env.termination_manager.time_out[done_mask]
                 for env_i in torch.nonzero(done_mask).flatten().tolist():
                     prog = progress_max[env_i].item()
                     rec = {
                         "env": env_i,
                         "steps": int(episode_step[env_i].item()),
                         "progress_max": round(prog, 3),
-                        "terminated": not bool(base_env.termination_manager.time_out[env_i].item()),
+                        # IsaacLab >= 2.3 renamed the termination buffer to time_outs
+                        "terminated": not bool(base_env.termination_manager.time_outs[env_i].item()),
                     }
                     for key, bound in seg_keys:
                         rec[key] = int(prog >= bound)
                     records.append(rec)
                 progress_max[done_mask] = 0.0
                 episode_step[done_mask] = 0
-                # silence unused warning for time_out bulk read
-                _ = time_out
 
     # ---- summary ----
     if not records:
