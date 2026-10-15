@@ -209,10 +209,16 @@ def main():
             writer.writeheader()
         writer.writerow(summary)
 
-    print("==== fixed-seed eval ====")
-    for key, value in summary.items():
-        print(f"  {key:>20}: {value}")
-    print(f"[INFO] history appended to {os.path.abspath(args_cli.history_csv)} — plot progress_mean / stairs_pass_pct across checkpoints")
+    # Mirror the audit script: stdout may not reach the platform log on normal
+    # exit (block buffering); stderr has proven reliable.
+    lines = ["==== fixed-seed eval ===="]
+    lines += [f"  {key:>20}: {value}" for key, value in summary.items()]
+    lines.append(
+        f"[INFO] history appended to {os.path.abspath(args_cli.history_csv)} — plot progress_mean / stairs_pass_pct across checkpoints"
+    )
+    report = "\n".join(lines)
+    print(report, flush=True)
+    print(report, file=sys.stderr, flush=True)
 
     env.close()
 
