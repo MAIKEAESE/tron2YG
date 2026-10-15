@@ -26,11 +26,13 @@ parser.add_argument("--num_envs", type=int, default=None, help="Number of enviro
 parser.add_argument("--task", type=str, default=None, help="Name of the task.")
 parser.add_argument("--seed", type=int, default=None, help="Seed used for the environment")
 parser.add_argument("--checkpoint_path", type=str, default=None, help="Relative path to checkpoint file.")
+parser.add_argument("--checkpoint_url", type=str, default=None, help="Signed OSS URL; downloaded to cwd when checkpoint_path is absent.")
 parser.add_argument("--follow_camera", action="store_true", default=False, help="Follow env-0 robot while recording.")
 parser.add_argument("--camera_distance", type=float, default=5.0, help="Follow camera distance behind the robot.")
 parser.add_argument("--camera_height", type=float, default=2.6, help="Follow camera height above the robot.")
 parser.add_argument("--camera_side", type=float, default=0.8, help="Follow camera lateral offset.")
 parser.add_argument("--camera_lookahead", type=float, default=2.5, help="Follow camera target distance ahead.")
+parser.add_argument("--max_steps", type=int, default=None, help="Exit the play loop after this many env steps (headless/batched playback).")
 parser.add_argument("--pose_log", action="store_true", default=False, help="Write env-0 pose diagnostics to CSV.")
 parser.add_argument("--pose_log_interval", type=int, default=10, help="Pose log interval in simulation steps.")
 parser.add_argument("--pose_log_path", type=str, default=None, help="Optional CSV path for pose diagnostics.")
@@ -454,6 +456,14 @@ def main():
 
     env_cfg.seed = agent_cfg.seed
 
+    if args_cli.checkpoint_path is None and args_cli.checkpoint_url is not None:
+        import urllib.request
+
+        dest = "resume_play_ckpt.pt"
+        print(f"[INFO] downloading checkpoint from signed URL -> {dest}", file=sys.stderr, flush=True)
+        urllib.request.urlretrieve(args_cli.checkpoint_url, dest)
+        args_cli.checkpoint_path = dest
+
     # specify directory for logging experiments
     if args_cli.checkpoint_path is None:
         log_root_path = os.path.join("logs", "rsl_rl", agent_cfg.experiment_name)
@@ -522,6 +532,7 @@ def main():
     update_follow_camera(env)
  
     # simulate environment
+    step_count = 0
     try:
         while simulation_app.is_running():
             # run everything in inference mode
@@ -534,10 +545,14 @@ def main():
                 obs = obs_dict["policy"]
                 obs_history = obs_dict.get("obsHistory")
                 obs_history = obs_history.flatten(start_dim=1)
-                commands = obs_dict.get("commands") 
+                commands = obs_dict.get("commands")
                 update_follow_camera(env)
                 if pose_logger is not None:
                     pose_logger.record()
+                step_count += 1
+                if args_cli.max_steps is not None and step_count >= args_cli.max_steps:
+                    print(f"[INFO] reached max_steps={args_cli.max_steps}, exiting play loop", file=sys.stderr, flush=True)
+                    break
     finally:
         if pose_logger is not None:
             pose_logger.close()
