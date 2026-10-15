@@ -157,7 +157,7 @@ def main():
         activation = (weighted.abs() > 1.0e-6).float().mean().item() * 100.0
         contrib = 0.0 if contrib_abs_total == 0.0 else contrib_sum[term_idx].item() / contrib_abs_total * 100.0
         if pre_fall_max:
-            bursts = torch.stack(pre_fall_max)[:, term_idx]  # per failing episode max
+            bursts = torch.cat(pre_fall_max, dim=0)[:, term_idx]  # per failing episode max
             pre_p95 = torch.quantile(bursts.float(), 0.95).item() if bursts.numel() > 0 else 0.0
         else:
             pre_p95 = 0.0
