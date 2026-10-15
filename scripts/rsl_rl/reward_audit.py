@@ -52,6 +52,7 @@ import gymnasium as gym
 import torch
 
 from isaaclab.envs import ManagerBasedRLEnvCfg
+from isaaclab.managers import RewardTermCfg
 from isaaclab_tasks.utils import parse_env_cfg
 
 # Import extension to set up environment tasks
@@ -79,15 +80,20 @@ def main():
     dt = env.unwrapped.step_dt
 
     reward_manager = env.unwrapped.reward_manager
-    group = "default" if "default" in reward_manager.active_terms else next(iter(reward_manager.active_terms))
+    # IsaacLab 2.3.x reshaped RewardManager.active_terms; iterating the config
+    # object's attributes is stable across versions and includes every RewTerm
+    # mounted on the RewardsCfg (dynamically added ones included).
     terms = []
-    for term_name, term_cfg in reward_manager.active_terms[group].items():
+    for term_name, term_cfg in vars(reward_manager.cfg).items():
+        if not isinstance(term_cfg, RewardTermCfg):
+            continue
         if term_cfg.weight == 0.0:
             continue
-        if hasattr(term_cfg.func, "__func__"):
-            print(f"[WARN] skipping class-based term '{term_name}' (not supported by audit)")
+        if term_cfg.func is None or hasattr(term_cfg.func, "__func__"):
+            print(f"[WARN] skipping class-based/missing term '{term_name}' (not supported by audit)")
             continue
         terms.append((term_name, term_cfg))
+    terms.sort(key=lambda item: item[0])
     num_terms = len(terms)
     print(f"[INFO] auditing {num_terms} active reward terms on random policy, {args_cli.num_envs} envs x {args_cli.steps} steps")
 
