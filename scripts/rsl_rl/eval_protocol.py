@@ -38,7 +38,8 @@ import cli_args  # isort: skip
 
 parser = argparse.ArgumentParser(description="Fixed-seed evaluation of a checkpoint.")
 parser.add_argument("--task", type=str, required=True, help="Name of the task (use the -Play- variant).")
-parser.add_argument("--checkpoint_path", type=str, required=True, help="Path to the model .pt to evaluate.")
+parser.add_argument("--checkpoint_path", type=str, default=None, help="Path to the model .pt to evaluate (container-local).")
+parser.add_argument("--checkpoint_url", type=str, default=None, help="Signed OSS URL; downloaded to a temp file when checkpoint_path is absent (the resume-mount fields only apply to trainType=2 tasks).")
 parser.add_argument("--num_envs", type=int, default=50, help="Parallel eval envs (episodes per repeat).")
 parser.add_argument("--repeat", type=int, default=2, help="How many passes over all envs.")
 parser.add_argument("--eval_seed", type=int, default=42, help="Fixed seed: THE ruler. Keep it constant across checkpoints.")
@@ -96,6 +97,15 @@ def main():
     env = gym.make(args_cli.task, cfg=env_cfg)
     env = RslRlVecEnvWrapper(env)
     device = env.unwrapped.device
+
+    if args_cli.checkpoint_url and not args_cli.checkpoint_path:
+        import tempfile
+        import urllib.request
+
+        dest = os.path.join(tempfile.gettempdir(), "eval_ckpt.pt")
+        print(f"[INFO] downloading checkpoint from signed URL -> {dest}", file=sys.stderr, flush=True)
+        urllib.request.urlretrieve(args_cli.checkpoint_url, dest)
+        args_cli.checkpoint_path = dest
 
     runner = OnPolicyRunner(env, agent_cfg.to_dict(), log_dir=None, device=agent_cfg.device)
     runner.load(args_cli.checkpoint_path)
