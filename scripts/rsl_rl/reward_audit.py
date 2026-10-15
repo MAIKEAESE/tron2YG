@@ -48,6 +48,8 @@ simulation_app = app_launcher.app
 
 """Rest everything follows."""
 
+import sys
+
 import gymnasium as gym
 import torch
 
@@ -126,6 +128,8 @@ def main():
 
         ring[ring_ptr] = step_raw
         ring_ptr = (ring_ptr + 1) % args_cli.pre_fall_steps
+        if step % 500 == 0:
+            print(f"[audit] step {step}/{args_cli.steps}", file=sys.stderr, flush=True)
 
         fail_mask = torch.as_tensor(terminated, device=device).bool()
         done_mask = fail_mask | torch.as_tensor(truncated, device=device).bool()
@@ -186,10 +190,13 @@ def main():
         "explosion right before failure resets; DEAD = gate almost never opens."
     )
     report = "\n".join(lines)
-    print(report)
+    # stdout is block-buffered under the platform runner and may not reach the
+    # captured log; stderr has proven reliable — write the report to both.
+    print(report, flush=True)
+    print(report, file=sys.stderr, flush=True)
     with open(args_cli.output, "w", encoding="utf-8") as f:
         f.write(report + "\n")
-    print(f"[INFO] report written to {os.path.abspath(args_cli.output)}")
+    print(f"[INFO] report written to {os.path.abspath(args_cli.output)}", file=sys.stderr, flush=True)
 
     env.close()
 
