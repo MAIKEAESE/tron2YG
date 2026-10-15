@@ -7,6 +7,7 @@ from bipedal_locomotion.tasks.locomotion.agents.limx_rsl_rl_ppo_cfg import (
     SFYG_TRON2APerceptiveGaitPPORunnerCfg, SFYG_TRON2APerceptiveStandLiftPPORunnerCfg,
     SFYG_TRON2APerceptiveRandomDirPPORunnerCfg,
     SFYG_TRON2APerceptiveRoughBasePPORunnerCfg,
+    SFYG_TRON2APerceptiveGaitScratchPPORunnerCfg,
     WFYG_TRON2AFlatPPORunnerCfg,
 )
 
@@ -40,6 +41,8 @@ limx_sfyg_tron2a_perceptive_stand_lift_runner_cfg = SFYG_TRON2APerceptiveStandLi
 limx_sfyg_tron2a_perceptive_random_dir_runner_cfg = SFYG_TRON2APerceptiveRandomDirPPORunnerCfg()
 
 limx_sfyg_tron2a_perceptive_rough_base_runner_cfg = SFYG_TRON2APerceptiveRoughBasePPORunnerCfg()
+
+limx_sfyg_tron2a_perceptive_gait_scratch_runner_cfg = SFYG_TRON2APerceptiveGaitScratchPPORunnerCfg()
 
 limx_wfyg_tron2a_blind_flat_runner_cfg = WFYG_TRON2AFlatPPORunnerCfg()
 
@@ -309,5 +312,26 @@ gym.register(
     kwargs={
         "env_cfg_entry_point": limx_wheelfoot_yg_tron2a_env_cfg.WFYG_TRON2A_BlindFlatEnvCfg_PLAY,
         "rsl_rl_cfg_entry_point": limx_wfyg_tron2a_blind_flat_runner_cfg,
+    },
+)
+
+
+gym.register(
+    id="Isaac-Limx-SFYG-TRON2A-Perceptive-GaitScratch-TronCamp-v0",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": limx_solefoot_yg_tron2a_env_cfg.SFYG_TRON2A_PerceptiveGaitScratchTronCampEnvCfg,
+        "rsl_rl_cfg_entry_point": limx_sfyg_tron2a_perceptive_gait_scratch_runner_cfg,
+    },
+)
+
+gym.register(
+    id="Isaac-Limx-SFYG-TRON2A-Perceptive-GaitScratch-TronCamp-Play-v0",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": limx_solefoot_yg_tron2a_env_cfg.SFYG_TRON2A_PerceptiveGaitScratchTronCampEnvCfg_PLAY,
+        "rsl_rl_cfg_entry_point": limx_sfyg_tron2a_perceptive_gait_scratch_runner_cfg,
     },
 )

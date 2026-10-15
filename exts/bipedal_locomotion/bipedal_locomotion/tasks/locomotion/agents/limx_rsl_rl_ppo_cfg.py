@@ -191,5 +191,31 @@ class SFYG_TRON2APerceptiveRoughBasePPORunnerCfg(SFYG_TRON2APerceptiveGaitPPORun
 
 #-----------------------------------------------------------------
 @configclass
+class SFYG_TRON2APerceptiveGaitScratchPPORunnerCfg(SFYG_TRON2APerceptiveGaitPPORunnerCfg):
+    # From-scratch line: fresh init needs more exploration and a higher start LR;
+    # the adaptive schedule (desired_kl) pulls the LR down as the gait forms.
+    max_iterations = 6000
+    save_interval = 100
+    experiment_name = "sfyg_tron_2a_perceptive_gait_scratch"
+    algorithm = RslRlPpoAlgorithmMlpCfg(
+        class_name="PPO",
+        value_loss_coef=1.0,
+        use_clipped_value_loss=True,
+        clip_param=0.2,
+        entropy_coef=0.008,
+        num_learning_epochs=5,
+        num_mini_batches=4,
+        learning_rate=1.0e-3,
+        schedule="adaptive",
+        gamma=0.99,
+        lam=0.95,
+        desired_kl=0.01,
+        max_grad_norm=1.0,
+        obs_history_len=10,
+    )
+
+
+#-----------------------------------------------------------------
+@configclass
 class WFYG_TRON2AFlatPPORunnerCfg(WF_TRON2AFlatPPORunnerCfg):
     experiment_name = "wfyg_tron_2a_flat"

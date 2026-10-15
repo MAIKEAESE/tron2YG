@@ -434,6 +434,149 @@ def _use_stand_lift_fast_convergence(self):
     self.rewards.high_obstacle_approach.weight = 0.45
 
 
+def _use_scratch_gait_rewards(self):
+    """From-scratch gait line: no stand-prior checkpoint, standing as a command mode.
+
+    Design constraints (see doc/GAIT_SCRATCH_RUNPLAN.md):
+    - Reward stack = 27 active terms: 21 task-level design terms set below plus 6
+      inherited safety/physics terms pinned at their base values. The foot-posture
+      shapers and lateral band-aids accumulated while escaping the stand-still local
+      optimum are zeroed: they pulled foot orientation in conflicting directions
+      (in-toe gait, lateral drift) in every resumed line.
+    - Stair skills flow through the single terrain-adaptive swing-clearance term
+      (yaw-referenced, height-banded) instead of the five obstacle rescue terms.
+    """
+    # Commands: straight-track walking; standing enters as the zero-velocity command.
+    self.commands.base_velocity.heading_command = False
+    self.commands.base_velocity.rel_standing_envs = 0.20
+    self.commands.base_velocity.rel_heading_envs = 0.0
+    self.commands.base_velocity.ranges.lin_vel_x = (0.12, 0.50)
+    self.commands.base_velocity.ranges.lin_vel_y = (0.0, 0.0)
+    self.commands.base_velocity.ranges.ang_vel_z = (0.0, 0.0)
+    self.commands.base_velocity.ranges.heading = (0.0, 0.0)
+    self.commands.gait_command.ranges.frequencies = (0.50, 0.80)
+    self.commands.gait_command.ranges.durations = (0.58, 0.70)
+    self.commands.gait_command.ranges.swing_height = (0.15, 0.24)
+
+    # Velocity tracking.
+    self.rewards.track_lin_vel_x_exp.weight = 4.0
+    self.rewards.track_lin_vel_x_exp.params["std"] = 0.25
+    self.rewards.track_lin_vel_y_exp.weight = 1.5
+    self.rewards.track_lin_vel_y_exp.params["std"] = 0.18
+    self.rewards.track_ang_vel_z_exp.weight = 2.0
+    self.rewards.track_ang_vel_z_exp.params["std"] = 0.20
+    self.rewards.forward_speed_shortfall.weight = -1.5
+    self.rewards.forward_speed_shortfall.params["deadband"] = 0.05
+
+    # Posture.
+    self.rewards.keep_balance.weight = 0.6
+    self.rewards.base_height_exp.weight = 0.9
+    self.rewards.base_height_exp.params["target_height"] = 0.74
+    self.rewards.flat_orientation_l2.weight = -1.0
+
+    # Gait core; terrain-adaptive clearance keeps its yaw-referenced height bands.
+    self.rewards.single_stance.weight = 0.8
+    self.rewards.walking_single_leg_air_time.weight = 3.0
+    self.rewards.single_leg_air_time_overrun.weight = -2.0
+    self.rewards.swing_foot_clearance.weight = 3.0
+    self.rewards.swing_foot_liftoff.weight = 0.35
+    self.rewards.double_flight.weight = -1.5
+
+    # Slip and contact safety.
+    self.rewards.feet_slide.weight = -0.25
+    self.rewards.feet_ang_slide_penalty.weight = -0.25
+    self.rewards.undesired_contacts.weight = -1.5
+    self.rewards.undesired_contacts.params["threshold"] = 5.0
+
+    # Route discipline: two terms replace six overlapping lateral shapers.
+    self.rewards.world_pos_y_abs.weight = -0.5
+    self.rewards.world_pos_y_abs.params["deadband"] = 0.25
+    self.rewards.heading_error_abs.weight = -0.8
+    self.rewards.heading_error_abs.params["deadband"] = math.radians(10.0)
+
+    # Action regularizers.
+    self.rewards.action_rate_l2.weight = -0.02
+    self.rewards.dof_vel_l2.weight = -2.0e-4
+    self.rewards.dof_acc_l2.weight = -1.0e-6
+
+    # Inherited safety/physics limit terms: kept, weights pinned at their base
+    # values so the scratch line is self-documenting (see modification report).
+    self.rewards.ang_vel_xy_l2.weight = -0.15
+    self.rewards.dof_pos_limits.weight = -0.2
+    self.rewards.dof_vel_limits.weight = -0.025
+    self.rewards.applied_torque_limits.weight = -1.0e-2
+    self.rewards.dof_power_l1.weight = -2.5e-7
+    self.rewards.foot_contact_force.weight = -0.002
+
+    # Zeroed: base posture priors — joint pull toward the default (standing) pose
+    # and knee yaw orientation are the same shaping family as the A-group terms.
+    self.rewards.joint_deviation_l1.weight = 0.0
+    self.rewards.orientation_exp_knee.weight = 0.0
+    # Zeroed: already zero in the gait parent chain; pinned explicitly.
+    self.rewards.feet_air_time.weight = 0.0
+    self.rewards.dof_torques_l2.weight = 0.0
+
+    # Zeroed: duplicate world-frame tracking and overshoot guards.
+    self.rewards.track_world_lin_vel_x_exp.weight = 0.0
+    self.rewards.forward_overspeed.weight = 0.0
+    self.rewards.gait_reward.weight = 0.0
+    # Zeroed: foot-posture shapers that fought each other (in-toe / drift artifacts).
+    self.rewards.knee_joint_orientation.weight = 0.0
+    self.rewards.same_feet_x_position.weight = 0.0
+    self.rewards.feet_distance.weight = 0.0
+    self.rewards.foot_joint_orientation.weight = 0.0
+    self.rewards.single_stance_feet_x_separation.weight = 0.0
+    self.rewards.balanced_feet_x_symmetry.weight = 0.0
+    self.rewards.double_stance_feet_x_alignment.weight = 0.0
+    self.rewards.stance_foot_stability.weight = 0.0
+    self.rewards.stance_knee_extension.weight = 0.0
+    self.rewards.swing_knee_flexion.weight = 0.0
+    self.rewards.forward_swing_knee_lift.weight = 0.0
+    self.rewards.swing_foot_lateral_deviation.weight = 0.0
+    # Zeroed: stand-escape lateral band-aids.
+    self.rewards.centerline_y.weight = 0.0
+    self.rewards.heading_alignment.weight = 0.0
+    self.rewards.world_lin_vel_y_abs.weight = 0.0
+    self.rewards.predicted_path_lateral_error.weight = 0.0
+    self.rewards.lateral_correction_velocity.weight = 0.0
+    # Zeroed: obstacle rescue terms; the adaptive clearance term owns stair skills.
+    self.rewards.obstacle_forward_swing.weight = 0.0
+    self.rewards.obstacle_approach_progress.weight = 0.0
+    self.rewards.obstacle_heading_error.weight = 0.0
+    self.rewards.obstacle_heading_alignment.weight = 0.0
+    self.rewards.high_obstacle_approach.weight = 0.0
+    # Zeroed: redundant smoothness penalties (action_rate + dof_acc cover them).
+    self.rewards.action_smoothness.weight = 0.0
+    self.rewards.torques_smoothness_penalty.weight = 0.0
+    self.rewards.body_lin_acc.weight = 0.0
+    self.rewards.lin_vel_z_l2.weight = 0.0
+
+
+def _use_scratch_curriculum_resets(self):
+    """Bumps-free TronCamp curriculum for the scratch line.
+
+    The official evaluation course has no bumps section, so bumps_entry gets zero
+    spawn weight at every phase. Segment lookup in the reset function is
+    name-based and sampling normalizes internally, so dropping the key equals
+    zero weight and the remaining segments keep their relative ratios.
+    Caveat: the generated track still contains the bumps feature between the
+    downhill and stairs sections — zero spawn weight does not prevent traversal.
+    """
+    _use_tron_camp_curriculum_resets(self)
+    params = self.events.reset_robot_base.params
+    params["curriculum_segments"] = tuple(
+        {**segment, "weight": 0.0} if segment["name"] == "bumps_entry" else segment
+        for segment in params["curriculum_segments"]
+    )
+    params["phase_schedule"] = tuple(
+        {
+            "step": phase["step"],
+            "weights": {name: weight for name, weight in phase["weights"].items() if name != "bumps_entry"},
+        }
+        for phase in params["phase_schedule"]
+    )
+
+
 def _use_forward_walking_commands(self):
     self.commands.base_velocity.heading_command = True
     self.commands.base_velocity.rel_standing_envs = 0.0
@@ -1131,4 +1274,31 @@ class SFYG_TRON2A_PerceptiveRoughBaseTronCampEnvCfg_PLAY(SFYG_TRON2A_PerceptiveG
     def __post_init__(self):
         super().__post_init__()
         _use_perceptive_rough_base_training(self)
+        self.scene.num_envs = 1
+
+
+@configclass
+class SFYG_TRON2A_PerceptiveGaitScratchTronCampEnvCfg(SFYG_TRON2A_PerceptiveGaitTronCampEnvCfg):
+    """From-scratch perceptive gait: standing is a command mode, lean reward stack.
+
+    Train WITHOUT --resume: the whole point is to drop the stand-prior checkpoint.
+    """
+
+    def __post_init__(self):
+        super().__post_init__()
+        _use_scratch_gait_rewards(self)
+        _use_scratch_curriculum_resets(self)
+
+
+@configclass
+class SFYG_TRON2A_PerceptiveGaitScratchTronCampEnvCfg_PLAY(SFYG_TRON2A_BlindGaitTronCampEnvCfg_PLAY):
+    def __post_init__(self):
+        super().__post_init__()
+        _use_base_height_scanner(self)
+        _use_policy_height_scan(self)
+        _use_perceptive_stair_clearance(self)
+        _use_scratch_gait_rewards(self)
+        # Same curriculum reset function as training so the Play smoke test
+        # exercises the bumps-free segment weights for real.
+        _use_scratch_curriculum_resets(self)
         self.scene.num_envs = 1
