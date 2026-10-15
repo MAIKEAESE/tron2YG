@@ -229,6 +229,11 @@ def main():
     report = "\n".join(lines)
     print(report, flush=True)
     print(report, file=sys.stderr, flush=True)
+    # Per-episode series for paired comparison across checkpoints (same seed
+    # => same scenarios; bootstrap uncertainty is computed off-platform).
+    print("episodes_progress: " + " ".join(f"{r['progress_max']:.2f}" for r in records), file=sys.stderr, flush=True)
+    print("episodes_steps: " + " ".join(str(r["steps"]) for r in records), file=sys.stderr, flush=True)
+    print("episodes_terminated: " + " ".join(str(int(r["terminated"])) for r in records), file=sys.stderr, flush=True)
 
     env.close()
 
