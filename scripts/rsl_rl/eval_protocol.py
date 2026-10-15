@@ -203,10 +203,10 @@ def main():
         "steps_mean": round(sum(r["steps"] for r in records) / n, 1),
     }
 
-    os.makedirs(args.output_dir, exist_ok=True)
+    os.makedirs(args_cli.output_dir, exist_ok=True)
     tag = os.path.splitext(os.path.basename(args_cli.checkpoint_path))[0]
 
-    with open(os.path.join(args.output_dir, f"eval_{tag}_episodes.csv"), "w", newline="", encoding="utf-8") as f:
+    with open(os.path.join(args_cli.output_dir, f"eval_{tag}_episodes.csv"), "w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=list(records[0].keys()))
         writer.writeheader()
         writer.writerows(records)
