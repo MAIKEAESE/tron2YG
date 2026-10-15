@@ -72,6 +72,8 @@ simulation_app = app_launcher.app
 import gymnasium as gym
 import torch
 
+import isaaclab.utils.math as math_utils
+
 from rsl_rl.runner import OnPolicyRunner
 
 from isaaclab.envs import ManagerBasedRLEnvCfg
@@ -138,8 +140,35 @@ def main():
         ("platform_reach", args_cli.x_platform),
     ]
 
+    # Scenario identity for cross-checkpoint pairing: the wrapper resets an env
+    # inside step() when it is done, so the pre-step state of an env that was
+    # done last iteration IS its spawn state for the new episode.
+    ep_count = {}
+    spawn_sig = {}
+    prev_done = torch.zeros(args_cli.num_envs, dtype=torch.bool, device=device)
+
+    def _capture_spawns(env_ids):
+        root_pos = robot.data.root_pos_w
+        _, _, yaw = math_utils.euler_xyz_from_quat(robot.data.root_quat_w)
+        for env_i in env_ids:
+            spawn_sig[env_i] = (
+                round(float(root_pos[env_i, 0] - env_origins[env_i, 0].item()), 2),
+                round(float(root_pos[env_i, 1] - env_origins[env_i, 1].item()), 2),
+                round(float(yaw[env_i].item()), 3),
+            )
+
     with torch.inference_mode():
         while len(records) < total_target and simulation_app.is_running():
+            if not ep_count:  # first episode of every env starts at reset()
+                _capture_spawns(range(args_cli.num_envs))
+                for env_i in range(args_cli.num_envs):
+                    ep_count[env_i] = 1
+            elif prev_done.any():  # envs done last step were reset inside step()
+                restarted = torch.nonzero(prev_done).flatten().tolist()
+                _capture_spawns(restarted)
+                for env_i in restarted:
+                    ep_count[env_i] = ep_count.get(env_i, 0) + 1
+
             est = encoder(obs_history)
             actions = policy(torch.cat((est, obs, commands), dim=-1).detach())
             obs_dict, _, dones, _ = env.step(actions)
@@ -158,10 +187,16 @@ def main():
                 done_mask |= torch.ones_like(done_mask)  # safety cap counts as stuck
 
             if done_mask.any():
-                for env_i in torch.nonzero(done_mask).flatten().tolist():
+                # cap the batch append so n never overshoots the target
+                remaining = total_target - len(records)
+                done_list = torch.nonzero(done_mask).flatten().tolist()[:remaining]
+                for env_i in done_list:
                     prog = progress_max[env_i].item()
+                    sig = spawn_sig.get(env_i, (None, None, None))
                     rec = {
                         "env": env_i,
+                        "ep_idx": ep_count.get(env_i, 1) - 1,
+                        "spawn": sig,
                         "steps": int(episode_step[env_i].item()),
                         "progress_max": round(prog, 3),
                         # IsaacLab >= 2.3 renamed the termination buffer to time_outs
@@ -172,6 +207,7 @@ def main():
                     records.append(rec)
                 progress_max[done_mask] = 0.0
                 episode_step[done_mask] = 0
+            prev_done = done_mask.clone()
 
     # ---- summary ----
     if not records:
@@ -229,11 +265,13 @@ def main():
     report = "\n".join(lines)
     print(report, flush=True)
     print(report, file=sys.stderr, flush=True)
-    # Per-episode series for paired comparison across checkpoints (same seed
-    # => same scenarios; bootstrap uncertainty is computed off-platform).
-    print("episodes_progress: " + " ".join(f"{r['progress_max']:.2f}" for r in records), file=sys.stderr, flush=True)
-    print("episodes_steps: " + " ".join(str(r["steps"]) for r in records), file=sys.stderr, flush=True)
-    print("episodes_terminated: " + " ".join(str(int(r["terminated"])) for r in records), file=sys.stderr, flush=True)
+    # Per-episode series for cross-checkpoint pairing. Each record carries its
+    # scenario signature (env id, episode index within env, spawn pose); pair
+    # records across checkpoints by matching signatures, NOT by output order.
+    print("episoderec: " + ";".join(
+        f"{r['env']},{r['ep_idx']},{r['spawn'][0]},{r['spawn'][1]},{r['spawn'][2]},{r['progress_max']:.2f},{r['steps']},{int(r['terminated'])}"
+        for r in records
+    ), file=sys.stderr, flush=True)
 
     env.close()
 
