@@ -481,7 +481,7 @@ def main():
         env_cfg.sim.render_mode = "PARTIAL_RENDERING"
         print(
             f"[DIAG] pre-make: cfg.sim.render_mode={env_cfg.sim.render_mode} "
-            f"app.render_enabled={simulation_app.render_enabled}",
+            f"app.render_enabled={getattr(simulation_app, 'render_enabled', 'N/A')}",
             file=sys.stderr,
             flush=True,
         )
