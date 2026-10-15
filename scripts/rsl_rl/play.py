@@ -475,6 +475,10 @@ def main():
     log_dir = os.path.dirname(resume_path)
 
     # create isaac environment
+    if args_cli.video:
+        # rgb_array capture under headless rendering.kit still defaults the sim
+        # to NO_GUI_OR_RENDERING on IsaacLab 2.3; force a rendering mode.
+        env_cfg.sim.render_mode = "PARTIAL_RENDERING"
     env = gym.make(args_cli.task, cfg=env_cfg, render_mode="rgb_array" if args_cli.video else None)
 
     if args_cli.video:
