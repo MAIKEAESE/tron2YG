@@ -479,8 +479,8 @@ def main():
         # rgb_array capture under headless rendering.kit still defaults the sim
         # to NO_GUI_OR_RENDERING on IsaacLab 2.3; force a rendering mode (enum,
         # the render() path calls .value on it).
-        from isaaclab.sim import RenderMode
-        env_cfg.sim.render_mode = RenderMode.PARTIAL_RENDERING
+        from isaaclab.sim.simulation_context import SimulationContext
+        env_cfg.sim.render_mode = SimulationContext.RenderMode.PARTIAL_RENDERING
         print(
             f"[DIAG] pre-make: cfg.sim.render_mode={env_cfg.sim.render_mode} "
             f"app.render_enabled={getattr(simulation_app, 'render_enabled', 'N/A')}",
@@ -490,8 +490,8 @@ def main():
     env = gym.make(args_cli.task, cfg=env_cfg, render_mode="rgb_array" if args_cli.video else None)
     if args_cli.video:
         try:
-            from isaaclab.sim import RenderMode
-            env.unwrapped.sim.render_mode = RenderMode.PARTIAL_RENDERING
+            from isaaclab.sim.simulation_context import SimulationContext
+            env.unwrapped.sim.render_mode = SimulationContext.RenderMode.PARTIAL_RENDERING
         except Exception as exc:  # noqa: BLE001
             print(f"[DIAG] post-make override failed: {exc}", file=sys.stderr, flush=True)
         print(
