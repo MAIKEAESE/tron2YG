@@ -475,7 +475,7 @@ def _use_scratch_gait_rewards(self):
     self.rewards.flat_orientation_l2.weight = -1.0
 
     # Gait core; terrain-adaptive clearance keeps its yaw-referenced height bands.
-    self.rewards.single_stance.weight = 0.8
+    self.rewards.single_stance.weight = 0.4
     self.rewards.walking_single_leg_air_time.weight = 3.0
     self.rewards.single_leg_air_time_overrun.weight = -2.0
     self.rewards.swing_foot_clearance.weight = 3.0
@@ -532,7 +532,7 @@ def _use_scratch_gait_rewards(self):
     self.rewards.stance_knee_extension.weight = 0.0
     self.rewards.swing_knee_flexion.weight = 0.0
     self.rewards.forward_swing_knee_lift.weight = 0.0
-    self.rewards.swing_foot_lateral_deviation.weight = 0.0
+    self.rewards.swing_foot_lateral_deviation.weight = -0.2
     # Zeroed: stand-escape lateral band-aids.
     self.rewards.centerline_y.weight = 0.0
     self.rewards.heading_alignment.weight = 0.0
