@@ -70,6 +70,8 @@ simulation_app = app_launcher.app
 """Rest everything follows."""
 
 import gymnasium as gym
+import math
+
 import torch
 
 import isaaclab.utils.math as math_utils
@@ -140,6 +142,42 @@ def main():
         ("platform_reach", args_cli.x_platform),
     ]
 
+    # Posture telemetry: gait-quality metrics (duty-factor asymmetry, stance
+    # swap rate, touchdown inward bias, step width, roll RMS, base-height std).
+    # Measurement only — these NEVER feed back into training rewards.
+    from isaaclab.managers import SceneEntityCfg
+
+    feet_sensor_cfg = SceneEntityCfg("contact_forces", body_names="ankle_pitch_.*")
+    feet_sensor_cfg.resolve(base_env.scene)
+    contact_sensor = base_env.scene.sensors[feet_sensor_cfg.name]
+    feet_contact_ids = list(feet_sensor_cfg.body_ids)
+
+    feet_body_cfg = SceneEntityCfg("robot", body_names="ankle_pitch_.*")
+    feet_body_cfg.resolve(base_env.scene)
+    foot_body_ids = list(feet_body_cfg.body_ids)
+
+    # Align both id lists by body name: index 0 = left foot, 1 = right foot in
+    # both the contact sensor and the body pose buffers.
+    body_names = robot.data.body_names
+    feet_contact_ids = [feet_contact_ids[i] for i in sorted(range(len(feet_contact_ids)), key=lambda i: body_names[feet_contact_ids[i]])]
+    foot_body_ids = [foot_body_ids[i] for i in sorted(range(len(foot_body_ids)), key=lambda i: body_names[foot_body_ids[i]])]
+
+    dt = env.unwrapped.step_dt
+    # Inward convention (body frame): left foot -y, right foot +y => positive = crossing inward.
+    inward_sign = torch.tensor([-1.0, 1.0], device=device).unsqueeze(0)
+
+    prev_contact = torch.zeros(args_cli.num_envs, len(feet_contact_ids), dtype=torch.bool, device=device)
+    prev_stance_foot = torch.full((args_cli.num_envs,), -1, dtype=torch.long, device=device)
+    stance_count = torch.zeros(args_cli.num_envs, len(feet_contact_ids), device=device)
+    swap_count = torch.zeros(args_cli.num_envs, device=device)
+    td_in_sum = torch.zeros(args_cli.num_envs, device=device)
+    td_count = torch.zeros(args_cli.num_envs, device=device)
+    ds_gap_sum = torch.zeros(args_cli.num_envs, device=device)
+    ds_count = torch.zeros(args_cli.num_envs, device=device)
+    roll_sq_sum = torch.zeros(args_cli.num_envs, device=device)
+    h_sum = torch.zeros(args_cli.num_envs, device=device)
+    h_sq_sum = torch.zeros(args_cli.num_envs, device=device)
+
     # Scenario identity for cross-checkpoint pairing: the wrapper resets an env
     # inside step() when it is done, so the pre-step state of an env that was
     # done last iteration IS its spawn state for the new episode.
@@ -182,6 +220,38 @@ def main():
             local_x = robot.data.root_pos_w[:, 0] - env_origins[:, 0]
             progress_max = torch.maximum(progress_max, local_x)
 
+            # ---- posture telemetry (per step, per env) ----
+            forces = contact_sensor.data.net_forces_w[:, feet_contact_ids, :].norm(dim=-1)
+            contact = forces > 1.0  # (N, 2) same threshold as single-stance terms
+            stance_count += contact.float()
+
+            foot_pos_w = robot.data.body_link_pos_w[:, foot_body_ids, :]
+            base_q = robot.data.root_link_quat_w.unsqueeze(1).expand(-1, foot_pos_w.shape[1], -1)
+            base_p = robot.data.root_link_state_w[:, :3].unsqueeze(1).expand(-1, foot_pos_w.shape[1], -1)
+            foot_y_b = math_utils.quat_apply_inverse(base_q, foot_pos_w - base_p)[..., 1]  # (N, 2)
+
+            touch = (~prev_contact) & contact
+            if touch.any():
+                td_in_sum += (foot_y_b * inward_sign * touch.float()).sum(dim=1)
+                td_count += touch.float().sum(dim=1)
+
+            ds_mask = contact.all(dim=1)
+            if ds_mask.any():
+                ds_gap_sum[ds_mask] += (foot_y_b[ds_mask, 0] - foot_y_b[ds_mask, 1]).abs()
+                ds_count[ds_mask] += 1.0
+
+            single_now = contact.sum(dim=1) == 1
+            stance_foot = torch.where(single_now, contact.long().argmax(dim=1), prev_stance_foot)
+            swap_count += ((stance_foot != prev_stance_foot) & (stance_foot >= 0) & (prev_stance_foot >= 0)).float()
+            prev_stance_foot = stance_foot
+            prev_contact = contact
+
+            roll_cur = math_utils.euler_xyz_from_quat(robot.data.root_quat_w)[0]
+            roll_sq_sum += roll_cur.square()
+            h_cur = robot.data.root_pos_w[:, 2]
+            h_sum += h_cur
+            h_sq_sum += h_cur.square()
+
             done_mask = torch.as_tensor(dones, device=device).bool()
             if episode_step.max().item() >= args_cli.max_episode_steps:
                 done_mask |= torch.ones_like(done_mask)  # safety cap counts as stuck
@@ -193,6 +263,10 @@ def main():
                 for env_i in done_list:
                     prog = progress_max[env_i].item()
                     sig = spawn_sig.get(env_i, (None, None, None))
+                    steps_f = max(int(episode_step[env_i].item()), 1)
+                    duty = (stance_count[env_i] / steps_f).tolist()
+                    td_n = max(td_count[env_i].item(), 1.0)
+                    ds_n = max(ds_count[env_i].item(), 1.0)
                     rec = {
                         "env": env_i,
                         "ep_idx": ep_count.get(env_i, 1) - 1,
@@ -201,12 +275,32 @@ def main():
                         "progress_max": round(prog, 3),
                         # IsaacLab >= 2.3 renamed the termination buffer to time_outs
                         "terminated": not bool(base_env.termination_manager.time_outs[env_i].item()),
+                        # posture metrics
+                        "duty_L": round(duty[0], 3),
+                        "duty_R": round(duty[1], 3),
+                        "duty_asym": round(abs(duty[0] - duty[1]), 3),
+                        "swap_rate": round(swap_count[env_i].item() / (steps_f * dt), 2),
+                        "td_inward": round(td_in_sum[env_i].item() / td_n, 3),
+                        "step_width": round(ds_gap_sum[env_i].item() / ds_n, 3),
+                        "roll_rms": round(math.sqrt(roll_sq_sum[env_i].item() / steps_f), 3),
+                        "base_h_std": round(math.sqrt(max(h_sq_sum[env_i].item() / steps_f - (h_sum[env_i].item() / steps_f) ** 2, 0.0)), 4),
                     }
                     for key, bound in seg_keys:
                         rec[key] = int(prog >= bound)
                     records.append(rec)
                 progress_max[done_mask] = 0.0
                 episode_step[done_mask] = 0
+                stance_count[done_mask] = 0.0
+                swap_count[done_mask] = 0.0
+                td_in_sum[done_mask] = 0.0
+                td_count[done_mask] = 0.0
+                ds_gap_sum[done_mask] = 0.0
+                ds_count[done_mask] = 0.0
+                roll_sq_sum[done_mask] = 0.0
+                h_sum[done_mask] = 0.0
+                h_sq_sum[done_mask] = 0.0
+                prev_contact[done_mask] = False
+                prev_stance_foot[done_mask] = -1
             prev_done = done_mask.clone()
 
     # ---- summary ----
@@ -237,6 +331,13 @@ def main():
         "platform_reach_pct": round(pct("platform_reach"), 1),
         "failure_rate_pct": round(100.0 * sum(r["terminated"] for r in records) / n, 1),
         "steps_mean": round(sum(r["steps"] for r in records) / n, 1),
+        # posture aggregates
+        "duty_asym_mean": round(sum(r["duty_asym"] for r in records) / n, 3),
+        "swap_rate_mean": round(sum(r["swap_rate"] for r in records) / n, 2),
+        "td_inward_mean": round(sum(r["td_inward"] for r in records) / n, 3),
+        "step_width_mean": round(sum(r["step_width"] for r in records) / n, 3),
+        "roll_rms_mean": round(sum(r["roll_rms"] for r in records) / n, 3),
+        "base_h_std_mean": round(sum(r["base_h_std"] for r in records) / n, 4),
     }
 
     os.makedirs(args_cli.output_dir, exist_ok=True)
@@ -269,7 +370,8 @@ def main():
     # scenario signature (env id, episode index within env, spawn pose); pair
     # records across checkpoints by matching signatures, NOT by output order.
     print("episoderec: " + ";".join(
-        f"{r['env']},{r['ep_idx']},{r['spawn'][0]},{r['spawn'][1]},{r['spawn'][2]},{r['progress_max']:.2f},{r['steps']},{int(r['terminated'])}"
+        f"{r['env']},{r['ep_idx']},{r['spawn'][0]},{r['spawn'][1]},{r['spawn'][2]},{r['progress_max']:.2f},{r['steps']},{int(r['terminated'])},"
+        f"{r['duty_L']},{r['duty_R']},{r['duty_asym']},{r['swap_rate']},{r['td_inward']},{r['step_width']},{r['roll_rms']},{r['base_h_std']}"
         for r in records
     ), file=sys.stderr, flush=True)
 
