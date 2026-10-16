@@ -178,6 +178,15 @@ def main():
     h_sum = torch.zeros(args_cli.num_envs, device=device)
     h_sq_sum = torch.zeros(args_cli.num_envs, device=device)
 
+    # Debounced (history-min) contact: true continuous stance, immune to
+    # single-frame force dips. Used to measure true swap rate and the longest
+    # continuous pillar stance per episode — decides whether a stance-duration
+    # penalty could ever fire.
+    stable_t = torch.zeros(args_cli.num_envs, len(feet_contact_ids), device=device)
+    pillar_max = torch.zeros(args_cli.num_envs, device=device)
+    prev_deb_stance = torch.full((args_cli.num_envs,), -1, dtype=torch.long, device=device)
+    deb_swap_count = torch.zeros(args_cli.num_envs, device=device)
+
     # Scenario identity for cross-checkpoint pairing: the wrapper resets an env
     # inside step() when it is done, so the pre-step state of an env that was
     # done last iteration IS its spawn state for the new episode.
@@ -246,6 +255,15 @@ def main():
             prev_stance_foot = stance_foot
             prev_contact = contact
 
+            forces_hist = contact_sensor.data.net_forces_w_history[:, :, feet_contact_ids, :].norm(dim=-1)
+            deb_contact = forces_hist.min(dim=1)[0] > 1.0  # maintained through the whole window
+            stable_t = torch.where(deb_contact, stable_t + dt, torch.zeros_like(stable_t))
+            pillar_max = torch.maximum(pillar_max, stable_t.max(dim=1)[0])
+            deb_single = deb_contact.sum(dim=1) == 1
+            deb_stance = torch.where(deb_single, deb_contact.long().argmax(dim=1), prev_deb_stance)
+            deb_swap_count += ((deb_stance != prev_deb_stance) & (deb_stance >= 0) & (prev_deb_stance >= 0)).float()
+            prev_deb_stance = deb_stance
+
             roll_cur = math_utils.euler_xyz_from_quat(robot.data.root_quat_w)[0]
             roll_sq_sum += roll_cur.square()
             h_cur = robot.data.root_pos_w[:, 2]
@@ -284,6 +302,9 @@ def main():
                         "step_width": round(ds_gap_sum[env_i].item() / ds_n, 3),
                         "roll_rms": round(math.sqrt(roll_sq_sum[env_i].item() / steps_f), 3),
                         "base_h_std": round(math.sqrt(max(h_sq_sum[env_i].item() / steps_f - (h_sum[env_i].item() / steps_f) ** 2, 0.0)), 4),
+                        # debounced posture metrics
+                        "deb_swap_rate": round(deb_swap_count[env_i].item() / (steps_f * dt), 2),
+                        "pillar_max_s": round(pillar_max[env_i].item(), 2),
                     }
                     for key, bound in seg_keys:
                         rec[key] = int(prog >= bound)
@@ -301,6 +322,10 @@ def main():
                 h_sq_sum[done_mask] = 0.0
                 prev_contact[done_mask] = False
                 prev_stance_foot[done_mask] = -1
+                stable_t[done_mask] = 0.0
+                pillar_max[done_mask] = 0.0
+                prev_deb_stance[done_mask] = -1
+                deb_swap_count[done_mask] = 0.0
             prev_done = done_mask.clone()
 
     # ---- summary ----
@@ -338,6 +363,9 @@ def main():
         "step_width_mean": round(sum(r["step_width"] for r in records) / n, 3),
         "roll_rms_mean": round(sum(r["roll_rms"] for r in records) / n, 3),
         "base_h_std_mean": round(sum(r["base_h_std"] for r in records) / n, 4),
+        "deb_swap_rate_mean": round(sum(r["deb_swap_rate"] for r in records) / n, 2),
+        "pillar_max_s_mean": round(sum(r["pillar_max_s"] for r in records) / n, 2),
+        "pillar_over_1s_pct": round(100.0 * sum(1 for r in records if r["pillar_max_s"] >= 1.0) / n, 1),
     }
 
     os.makedirs(args_cli.output_dir, exist_ok=True)
@@ -371,7 +399,8 @@ def main():
     # records across checkpoints by matching signatures, NOT by output order.
     print("episoderec: " + ";".join(
         f"{r['env']},{r['ep_idx']},{r['spawn'][0]},{r['spawn'][1]},{r['spawn'][2]},{r['progress_max']:.2f},{r['steps']},{int(r['terminated'])},"
-        f"{r['duty_L']},{r['duty_R']},{r['duty_asym']},{r['swap_rate']},{r['td_inward']},{r['step_width']},{r['roll_rms']},{r['base_h_std']}"
+        f"{r['duty_L']},{r['duty_R']},{r['duty_asym']},{r['swap_rate']},{r['td_inward']},{r['step_width']},{r['roll_rms']},{r['base_h_std']},"
+        f"{r['deb_swap_rate']},{r['pillar_max_s']}"
         for r in records
     ), file=sys.stderr, flush=True)
 
