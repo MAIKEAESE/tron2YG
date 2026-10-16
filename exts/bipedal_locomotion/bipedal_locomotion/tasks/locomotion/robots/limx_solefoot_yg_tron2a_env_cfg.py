@@ -472,7 +472,7 @@ def _use_scratch_gait_rewards(self):
     self.rewards.keep_balance.weight = 0.6
     self.rewards.base_height_exp.weight = 0.9
     self.rewards.base_height_exp.params["target_height"] = 0.74
-    self.rewards.flat_orientation_l2.weight = -1.0
+    self.rewards.flat_orientation_l2.weight = -0.5
 
     # Gait core; terrain-adaptive clearance keeps its yaw-referenced height bands.
     self.rewards.single_stance.weight = 0.4
@@ -523,7 +523,8 @@ def _use_scratch_gait_rewards(self):
     # Zeroed: foot-posture shapers that fought each other (in-toe / drift artifacts).
     self.rewards.knee_joint_orientation.weight = 0.0
     self.rewards.same_feet_x_position.weight = 0.0
-    self.rewards.feet_distance.weight = 0.0
+    self.rewards.feet_distance.weight = 0.3
+    self.rewards.feet_distance.params["desired_dist"] = 0.22
     self.rewards.foot_joint_orientation.weight = 0.0
     self.rewards.single_stance_feet_x_separation.weight = 0.0
     self.rewards.balanced_feet_x_symmetry.weight = 0.0
