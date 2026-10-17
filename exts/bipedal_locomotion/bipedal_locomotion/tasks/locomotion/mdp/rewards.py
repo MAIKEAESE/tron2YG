@@ -12,6 +12,8 @@ from typing import TYPE_CHECKING
 from isaaclab.assets import Articulation, RigidObject
 from isaaclab.managers import ManagerTermBase, SceneEntityCfg
 from isaaclab.sensors import ContactSensor, RayCaster
+from types import SimpleNamespace
+
 from isaaclab.utils.math import quat_apply_inverse, yaw_quat
 import isaaclab.utils.math as math_utils
 from bipedal_locomotion.utils.math import CubicSpline
@@ -24,70 +26,6 @@ if TYPE_CHECKING:
 
 def normalize_angle(x):
     return torch.atan2(torch.sin(x), torch.cos(x))
-
-
-class SwingAlternationGate(ManagerTermBase):
-    """Alternation gate: pay full when the swing foot alternates legs, a fraction when the same leg swings consecutively.
-
-    Wraps an existing per-swing reward (passed as inner_func) and multiplies its
-    value by a gate computed from which foot was the previous swing foot. This
-    converts single-leg "flail farming" income into alternation-conditioned
-    income without changing the wrapped reward's semantics.
-    """
-
-    def __init__(self, cfg, env):
-        super().__init__(cfg, env)
-        self._last_swing = torch.full((env.num_envs,), -1, dtype=torch.long, device=env.device)
-        # The reward manager does not resolve SceneEntityCfg params for class
-        # terms (unresolved body_ids slice EVERYTHING, mismatching the inner
-        # functions' asset ids), while leaving resolved cfgs in params makes a
-        # later manager deepcopy re-validate names-vs-ids and raise. Resolve
-        # every entity cfg here, then replace it with a plain namespace so no
-        # SceneEntityCfg survives in this term's params.
-        from types import SimpleNamespace
-
-        def _flatten(value):
-            if isinstance(value, SceneEntityCfg):
-                # The manager pre-resolves class-term params (ids already set);
-                # re-resolving trips the names-vs-ids consistency check. Only
-                # resolve cfgs that are still unresolved.
-                if value.body_ids is None and value.joint_ids is None:
-                    value.resolve(env.scene)
-                fields = {f: getattr(value, f) for f in value.__dataclass_fields__}
-                return SimpleNamespace(**fields)
-            if isinstance(value, dict):
-                return {key: _flatten(item) for key, item in value.items()}
-            return value
-
-        cfg.params = _flatten(cfg.params)
-
-    def reset(self, env_ids=None):
-        if env_ids is None:
-            env_ids = torch.arange(self._env.num_envs, device=self._env.device)
-        self._last_swing[env_ids] = -1
-
-    def _gate_factor(self, env, sensor_cfg, threshold: float, same_leg_factor: float) -> torch.Tensor:
-        contact_sensor: ContactSensor = env.scene.sensors[sensor_cfg.name]
-        contacts = (
-            contact_sensor.data.net_forces_w_history[:, :, sensor_cfg.body_ids, :].norm(dim=-1).max(dim=1)[0] > threshold
-        )
-        single_stance = torch.sum(contacts.int(), dim=1) == 1
-        swing_foot = torch.where(single_stance, (~contacts).long().argmax(dim=1), self._last_swing)
-        has_prev = self._last_swing >= 0
-        swapped = (swing_foot != self._last_swing) & has_prev
-        gate = torch.where(swapped, 1.0, same_leg_factor)
-        gate = torch.where(~has_prev, 1.0, gate)  # first swing after reset pays full
-        self._last_swing = swing_foot
-        return gate
-
-    def __call__(self, env, inner_func, inner_kwargs, sensor_cfg, threshold: float = 1.0, same_leg_factor: float = 0.3) -> torch.Tensor:
-        # IsaacLab's manager validates params against this signature and does not
-        # support **kwargs passthrough, so the wrapped reward's parameters are
-        # passed as one explicit dict. The gate consumes sensor_cfg itself, so
-        # drop any duplicate copy inherited from the parent term params.
-        inner_kwargs = {key: value for key, value in inner_kwargs.items() if key != "sensor_cfg"}
-        value = inner_func(env, sensor_cfg=sensor_cfg, **inner_kwargs)
-        return value * self._gate_factor(env, sensor_cfg, threshold, same_leg_factor)
 
 
 def stay_alive(env: ManagerBasedRLEnv) -> torch.Tensor:
@@ -2028,3 +1966,103 @@ class ActionSmoothnessPenalty(ManagerTermBase):
         startup_env_mask = env.episode_length_buf < 3
         penalty[startup_env_mask] = 0
         return penalty
+
+
+class _AlternationGateBase(ManagerTermBase):
+    """Shared swing-alternation gate state and factor computation."""
+
+    GATE_THRESHOLD = 1.0
+    SAME_LEG_FACTOR = 0.3
+
+    def __init__(self, cfg, env):
+        super().__init__(cfg, env)
+        self._last_swing = torch.full((env.num_envs,), -1, dtype=torch.long, device=env.device)
+        sensor = env.scene.sensors["contact_forces"]
+        self._feet_ids = sensor.find_bodies("ankle_pitch_.*")[0]
+        self._feet_sensor_ns = SimpleNamespace(
+            name="contact_forces", body_ids=self._feet_ids, joint_ids=None,
+            joint_names=None, body_names=None, prim_path=None,
+        )
+
+    def reset(self, env_ids=None):
+        if env_ids is None:
+            env_ids = torch.arange(self._env.num_envs, device=self._env.device)
+        self._last_swing[env_ids] = -1
+
+    def _gate_factor(self, env) -> torch.Tensor:
+        contact_sensor: ContactSensor = env.scene.sensors["contact_forces"]
+        contacts = (
+            contact_sensor.data.net_forces_w_history[:, :, self._feet_ids, :].norm(dim=-1).max(dim=1)[0]
+            > self.GATE_THRESHOLD
+        )
+        single_stance = torch.sum(contacts.int(), dim=1) == 1
+        swing_foot = torch.where(single_stance, (~contacts).long().argmax(dim=1), self._last_swing)
+        has_prev = self._last_swing >= 0
+        swapped = (swing_foot != self._last_swing) & has_prev
+        gate = torch.where(swapped, 1.0, self.SAME_LEG_FACTOR)
+        gate = torch.where(~has_prev, 1.0, gate)
+        self._last_swing = swing_foot
+        return gate
+
+
+class GatedSwingFootClearance(_AlternationGateBase):
+    """terrain-adaptive swing clearance, paid in full only when the swing foot alternates legs.
+
+    Parameters are hardwired to the exact v6 values (attributed drift analysis);
+    they live here because the reward manager neither resolves nested entity
+    cfgs for class terms nor tolerates **kwargs passthrough.
+    """
+
+    CLEARANCE_PARAMS = dict(
+        base_height=0.16, obstacle_margin=0.10, max_target_height=0.34, std=0.06,
+        front_min_x=0.15, near_abs_x=0.25, obstacle_threshold=0.025,
+        min_forward_speed=0.12, max_tilt=0.50, allow_obstacle_stationary=True,
+        min_base_clearance=0.62, max_stance_foot_speed=0.28,
+        high_obstacle_threshold=0.18, max_high_obstacle_yaw=0.4363323129985824,
+        height_bands=((0.025, 0.07), (0.080, 0.13), (0.140, 0.21)),
+    )
+
+    def __init__(self, cfg, env):
+        super().__init__(cfg, env)
+        self._asset_ns = SimpleNamespace(
+            name="robot",
+            body_ids=env.scene["robot"].find_bodies("ankle_pitch_.*")[0],
+            joint_ids=None, joint_names=None, body_names=None, prim_path=None,
+        )
+        self._ray_ns = SimpleNamespace(
+            name="height_scanner", body_ids=None, joint_ids=None,
+            joint_names=None, body_names=None, prim_path=None,
+        )
+
+    def __call__(self, env) -> torch.Tensor:
+        value = terrain_adaptive_swing_foot_clearance_reward(
+            env, sensor_cfg=self._feet_sensor_ns, asset_cfg=self._asset_ns,
+            ray_sensor_cfg=self._ray_ns, **self.CLEARANCE_PARAMS,
+        )
+        return value * self._gate_factor(env)
+
+
+class GatedWalkingSingleLegAirTime(_AlternationGateBase):
+    """Walking single-leg air time, paid in full only when the swing foot alternates legs."""
+
+    AIRTIME_PARAMS = dict(
+        command_name="base_velocity", min_command_speed=0.08, min_forward_speed=0.05,
+        target_air_time=0.30, air_time_std=0.12, min_air_time=0.14, max_air_time=0.40,
+        max_tilt=0.80, min_base_height=0.58, max_lateral_abs_y=0.4,
+        max_stance_foot_speed=0.25, min_stance_force=80.0, max_heading_error=0.45,
+    )
+
+    def __init__(self, cfg, env):
+        super().__init__(cfg, env)
+        self._asset_ns = SimpleNamespace(
+            name="robot",
+            body_ids=env.scene["robot"].find_bodies("ankle_pitch_.*")[0],
+            joint_ids=None, joint_names=None, body_names=None, prim_path=None,
+        )
+
+    def __call__(self, env) -> torch.Tensor:
+        value = walking_single_leg_air_time_reward(
+            env, sensor_cfg=self._feet_sensor_ns, asset_cfg=self._asset_ns,
+            **self.AIRTIME_PARAMS,
+        )
+        return value * self._gate_factor(env)

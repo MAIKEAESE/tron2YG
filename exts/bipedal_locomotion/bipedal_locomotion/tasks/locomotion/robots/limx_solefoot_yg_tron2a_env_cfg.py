@@ -480,26 +480,12 @@ def _use_scratch_gait_rewards(self):
     # full pay only when the swing foot alternates legs (30% for same-leg swings).
     # Params are inherited from the parent RewTerm and passed through to the
     # inner function, so the wrapped semantics stay identical.
-    _air_inner = dict(self.rewards.walking_single_leg_air_time.params)
     self.rewards.walking_single_leg_air_time = RewTerm(
-        func=mdp.SwingAlternationGate,
-        weight=4.0,
-        params={
-            "inner_func": mdp.walking_single_leg_air_time_reward,
-            "inner_kwargs": _air_inner,
-            "sensor_cfg": SceneEntityCfg("contact_forces", body_names="ankle_pitch_.*"),
-        },
+        func=mdp.GatedWalkingSingleLegAirTime, weight=4.0
     )
     self.rewards.single_leg_air_time_overrun.weight = -2.5
-    _clearance_inner = dict(self.rewards.swing_foot_clearance.params)
     self.rewards.swing_foot_clearance = RewTerm(
-        func=mdp.SwingAlternationGate,
-        weight=4.0,
-        params={
-            "inner_func": mdp.terrain_adaptive_swing_foot_clearance_reward,
-            "inner_kwargs": _clearance_inner,
-            "sensor_cfg": SceneEntityCfg("contact_forces", body_names="ankle_pitch_.*"),
-        },
+        func=mdp.GatedSwingFootClearance, weight=4.0
     )
     self.rewards.swing_foot_liftoff.weight = 0.5
     self.rewards.double_flight.weight = -1.5
