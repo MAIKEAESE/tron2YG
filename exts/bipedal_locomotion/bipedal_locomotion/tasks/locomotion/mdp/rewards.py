@@ -38,6 +38,18 @@ class SwingAlternationGate(ManagerTermBase):
     def __init__(self, cfg, env):
         super().__init__(cfg, env)
         self._last_swing = torch.full((env.num_envs,), -1, dtype=torch.long, device=env.device)
+        # The reward manager does not resolve SceneEntityCfg params for class
+        # terms (unresolved body_ids slice EVERYTHING, mismatching the inner
+        # functions' asset ids) - resolve every entity cfg ourselves, including
+        # the ones nested inside inner_kwargs.
+        def _resolve(value):
+            if isinstance(value, SceneEntityCfg):
+                value.resolve(env.scene)
+            elif isinstance(value, dict):
+                for item in value.values():
+                    _resolve(item)
+
+        _resolve(cfg.params)
 
     def reset(self, env_ids=None):
         if env_ids is None:
