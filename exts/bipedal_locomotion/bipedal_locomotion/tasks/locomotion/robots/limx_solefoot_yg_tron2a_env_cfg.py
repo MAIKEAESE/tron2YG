@@ -465,8 +465,8 @@ def _use_scratch_gait_rewards(self):
     self.rewards.track_lin_vel_y_exp.params["std"] = 0.18
     self.rewards.track_ang_vel_z_exp.weight = 2.0
     self.rewards.track_ang_vel_z_exp.params["std"] = 0.20
-    self.rewards.forward_speed_shortfall.weight = -1.5
-    self.rewards.forward_speed_shortfall.params["deadband"] = 0.05
+    self.rewards.forward_speed_shortfall.weight = -2.5
+    self.rewards.forward_speed_shortfall.params["deadband"] = 0.03
 
     # Posture.
     self.rewards.keep_balance.weight = 0.6
@@ -578,6 +578,22 @@ def _use_scratch_curriculum_resets(self):
             "weights": {name: weight for name, weight in phase["weights"].items() if name != "bumps_entry"},
         }
         for phase in params["phase_schedule"]
+    )
+    # Wire the per-env performance gate (NVIDIA-style): spawn segments unlock by
+    # demonstrated walking distance (>= promote_distance 4 m up, < demote 1.2 m
+    # down, max level 4, mastered levels revisited). The time-based phase
+    # schedule flattens to a uniform base so levels alone decide the mixture —
+    # a flat-only phase would otherwise multiply away every non-flat segment.
+    segment_names = [str(segment["name"]) for segment in params["curriculum_segments"]]
+    params["phase_schedule"] = (
+        {"step": 0, "weights": {name: 1.0 for name in segment_names if name != "bumps_entry"}},
+    )
+    params["adaptive_level_weights"] = (
+        {name: 1.0 if name == "start_flat" else 0.0 for name in segment_names if name != "bumps_entry"},
+        {"start_flat": 0.60, "up_ramp_entry": 0.40},
+        {"start_flat": 0.50, "up_ramp_entry": 0.20, "downhill_exit": 0.30},
+        {"start_flat": 0.40, "up_ramp_entry": 0.15, "downhill_exit": 0.15, "stairs_entry": 0.30},
+        {"start_flat": 0.32, "up_ramp_entry": 0.13, "downhill_exit": 0.13, "stairs_entry": 0.40, "platform_entry": 0.02},
     )
 
 
