@@ -56,6 +56,9 @@ parser.add_argument("--x_bumps", type=float, default=16.0, help="Local-x where t
 parser.add_argument("--x_stairs", type=float, default=24.0, help="Local-x where the stairs section begins.")
 parser.add_argument("--x_past_stairs", type=float, default=39.0, help="Local-x past the last stair.")
 parser.add_argument("--x_platform", type=float, default=42.0, help="Local-x where the final platform begins.")
+parser.add_argument("--fixed_spawn_dist", action="store_true", default=False,
+                    help="Freeze spawn segments to a fixed mix (flat/ramp/downhill/stairs 40/20/20/20) and disable "
+                    "level promotion, for a version-agnostic ruler with stable per-segment sample sizes.")
 # append RSL-RL cli args: parse_rsl_rl_cfg expects flags like --resume on the namespace
 cli_args.add_rsl_rl_args(parser)
 # append AppLauncher cli args
@@ -88,6 +91,23 @@ import bipedal_locomotion  # noqa: F401
 from bipedal_locomotion.utils.wrappers.rsl_rl import RslRlPpoAlgorithmMlpCfg
 
 
+SEG_BOUNDS = (("flat", -99.0, 1.5), ("ramp", 1.5, 9.0), ("downhill", 9.0, 15.5), ("stairs", 23.5, 40.0), ("platform", 40.0, 99.0))
+
+
+def _seg_stats(records):
+    """Per-spawn-segment breakdown (true displacement = progress - spawn_x); groups need n>=5."""
+    out = {}
+    for name, lo, hi in SEG_BOUNDS:
+        grp = [r for r in records if r["spawn"][0] is not None and lo <= r["spawn"][0] < hi]
+        if len(grp) < 5:
+            continue
+        out[f"seg_{name}_n"] = len(grp)
+        out[f"seg_{name}_disp_mean"] = round(sum(r["progress_max"] - r["spawn"][0] for r in grp) / len(grp), 2)
+        out[f"seg_{name}_gt2m_pct"] = round(100.0 * sum(1 for r in grp if r["progress_max"] - r["spawn"][0] > 2) / len(grp), 1)
+        out[f"seg_{name}_fail_pct"] = round(100.0 * sum(r["terminated"] for r in grp) / len(grp), 1)
+    return out
+
+
 def main():
     env_cfg: ManagerBasedRLEnvCfg = parse_env_cfg(
         task_name=args_cli.task, device=args_cli.device, num_envs=args_cli.num_envs
@@ -97,6 +117,15 @@ def main():
     # THE ruler: same seed across every checkpoint ever evaluated with this script.
     env_cfg.seed = args_cli.eval_seed
     torch.manual_seed(args_cli.eval_seed)
+
+    if args_cli.fixed_spawn_dist:
+        rp = env_cfg.events.reset_robot_base.params
+        seg_names = [str(seg["name"]) for seg in rp["curriculum_segments"]]
+        fixed = {"start_flat": 0.40, "up_ramp_entry": 0.20, "downhill_exit": 0.20, "stairs_entry": 0.20}
+        rp["phase_schedule"] = ({"step": 0, "weights": {n: fixed.get(n, 0.0) for n in seg_names}},)
+        rp["adaptive_level_weights"] = None
+        rp["adaptive_curriculum"] = False
+        print("[INFO] fixed_spawn_dist on: 40/20/20/20 flat/ramp/downhill/stairs, levels frozen", file=sys.stderr, flush=True)
 
     env = gym.make(args_cli.task, cfg=env_cfg)
     env = RslRlVecEnvWrapper(env)
@@ -364,6 +393,7 @@ def main():
         "roll_rms_mean": round(sum(r["roll_rms"] for r in records) / n, 3),
         "base_h_std_mean": round(sum(r["base_h_std"] for r in records) / n, 4),
         "deb_swap_rate_mean": round(sum(r["deb_swap_rate"] for r in records) / n, 2),
+        **_seg_stats(records),
         "pillar_max_s_mean": round(sum(r["pillar_max_s"] for r in records) / n, 2),
         "pillar_over_1s_pct": round(100.0 * sum(1 for r in records if r["pillar_max_s"] >= 1.0) / n, 1),
     }
