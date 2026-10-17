@@ -40,16 +40,22 @@ class SwingAlternationGate(ManagerTermBase):
         self._last_swing = torch.full((env.num_envs,), -1, dtype=torch.long, device=env.device)
         # The reward manager does not resolve SceneEntityCfg params for class
         # terms (unresolved body_ids slice EVERYTHING, mismatching the inner
-        # functions' asset ids) - resolve every entity cfg ourselves, including
-        # the ones nested inside inner_kwargs.
-        def _resolve(value):
+        # functions' asset ids), while leaving resolved cfgs in params makes a
+        # later manager deepcopy re-validate names-vs-ids and raise. Resolve
+        # every entity cfg here, then replace it with a plain namespace so no
+        # SceneEntityCfg survives in this term's params.
+        from types import SimpleNamespace
+
+        def _flatten(value):
             if isinstance(value, SceneEntityCfg):
                 value.resolve(env.scene)
-            elif isinstance(value, dict):
-                for item in value.values():
-                    _resolve(item)
+                fields = {f: getattr(value, f) for f in value.__dataclass_fields__}
+                return SimpleNamespace(**fields)
+            if isinstance(value, dict):
+                return {key: _flatten(item) for key, item in value.items()}
+            return value
 
-        _resolve(cfg.params)
+        cfg.params = _flatten(cfg.params)
 
     def reset(self, env_ids=None):
         if env_ids is None:
