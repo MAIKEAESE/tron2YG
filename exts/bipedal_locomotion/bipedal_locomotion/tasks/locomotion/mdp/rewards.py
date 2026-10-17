@@ -26,6 +26,43 @@ def normalize_angle(x):
     return torch.atan2(torch.sin(x), torch.cos(x))
 
 
+class SwingAlternationGate(ManagerTermBase):
+    """Alternation gate: pay full when the swing foot alternates legs, a fraction when the same leg swings consecutively.
+
+    Wraps an existing per-swing reward (passed as inner_func) and multiplies its
+    value by a gate computed from which foot was the previous swing foot. This
+    converts single-leg "flail farming" income into alternation-conditioned
+    income without changing the wrapped reward's semantics.
+    """
+
+    def __init__(self, cfg, env):
+        super().__init__(cfg, env)
+        self._last_swing = torch.full((env.num_envs,), -1, dtype=torch.long, device=env.device)
+
+    def reset(self, env_ids=None):
+        if env_ids is None:
+            env_ids = torch.arange(self._env.num_envs, device=self._env.device)
+        self._last_swing[env_ids] = -1
+
+    def _gate_factor(self, env, sensor_cfg, threshold: float, same_leg_factor: float) -> torch.Tensor:
+        contact_sensor: ContactSensor = env.scene.sensors[sensor_cfg.name]
+        contacts = (
+            contact_sensor.data.net_forces_w_history[:, :, sensor_cfg.body_ids, :].norm(dim=-1).max(dim=1)[0] > threshold
+        )
+        single_stance = torch.sum(contacts.int(), dim=1) == 1
+        swing_foot = torch.where(single_stance, (~contacts).long().argmax(dim=1), self._last_swing)
+        has_prev = self._last_swing >= 0
+        swapped = (swing_foot != self._last_swing) & has_prev
+        gate = torch.where(swapped, 1.0, same_leg_factor)
+        gate = torch.where(~has_prev, 1.0, gate)  # first swing after reset pays full
+        self._last_swing = swing_foot
+        return gate
+
+    def __call__(self, env, inner_func, sensor_cfg, threshold: float = 1.0, same_leg_factor: float = 0.3, **inner_kwargs) -> torch.Tensor:
+        value = inner_func(env, sensor_cfg=sensor_cfg, **inner_kwargs)
+        return value * self._gate_factor(env, sensor_cfg, threshold, same_leg_factor)
+
+
 def stay_alive(env: ManagerBasedRLEnv) -> torch.Tensor:
     """Reward for staying alive."""
     return torch.ones(env.num_envs, device=env.device)
