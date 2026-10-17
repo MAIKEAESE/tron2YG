@@ -61,7 +61,9 @@ class SwingAlternationGate(ManagerTermBase):
     def __call__(self, env, inner_func, inner_kwargs, sensor_cfg, threshold: float = 1.0, same_leg_factor: float = 0.3) -> torch.Tensor:
         # IsaacLab's manager validates params against this signature and does not
         # support **kwargs passthrough, so the wrapped reward's parameters are
-        # passed as one explicit dict.
+        # passed as one explicit dict. The gate consumes sensor_cfg itself, so
+        # drop any duplicate copy inherited from the parent term params.
+        inner_kwargs = {key: value for key, value in inner_kwargs.items() if key != "sensor_cfg"}
         value = inner_func(env, sensor_cfg=sensor_cfg, **inner_kwargs)
         return value * self._gate_factor(env, sensor_cfg, threshold, same_leg_factor)
 
