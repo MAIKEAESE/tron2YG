@@ -48,7 +48,11 @@ class SwingAlternationGate(ManagerTermBase):
 
         def _flatten(value):
             if isinstance(value, SceneEntityCfg):
-                value.resolve(env.scene)
+                # The manager pre-resolves class-term params (ids already set);
+                # re-resolving trips the names-vs-ids consistency check. Only
+                # resolve cfgs that are still unresolved.
+                if value.body_ids is None and value.joint_ids is None:
+                    value.resolve(env.scene)
                 fields = {f: getattr(value, f) for f in value.__dataclass_fields__}
                 return SimpleNamespace(**fields)
             if isinstance(value, dict):
