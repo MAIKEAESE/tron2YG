@@ -249,7 +249,7 @@ def main():
             done_list = torch.nonzero(done_mask).flatten().tolist()[:remaining]
             for env_i in done_list:
                 # Determine end reason
-                timeout = base.termination_manager.time_out[env_i].item()
+                timeout = base.termination_manager.time_outs[env_i].item()
                 fell = not timeout
                 # Spawn validity: if first step has huge contact force, likely bad spawn
                 bad_spawn = spawn_valid[env_i] and ep_step[env_i] < 10 and safe_fz[env_i].abs().max() > 500
