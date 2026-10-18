@@ -175,7 +175,11 @@ def main():
     obs_history = obs_dict.get("obsHistory")
     if obs_history is not None:
         obs_history = obs_history.flatten(start_dim=1)
+    else:
+        obs_history = torch.zeros(N, 420, device=device)
     commands = obs_dict.get("commands")
+    if commands is None:
+        commands = torch.zeros(N, 3, device=device)
 
     total_target = N * args_cli.repeat
     step_count = 0
@@ -196,10 +200,14 @@ def main():
         actions = policy(torch.cat((est, obs, commands), dim=-1).detach())
         obs_dict, _, dones, _ = env.step(actions)
         obs = obs_dict["policy"]
-        obs_history = obs_dict.get("obs_history")
+        obs_history = obs_dict.get("obs_history") or obs_dict.get("obsHistory")
         if obs_history is not None:
             obs_history = obs_history.flatten(start_dim=1)
+        else:
+            obs_history = torch.zeros(N, 420, device=device)
         commands = obs_dict.get("commands")
+        if commands is None:
+            commands = torch.zeros(N, 3, device=device)
 
         ep_step += 1
         step_count += 1
