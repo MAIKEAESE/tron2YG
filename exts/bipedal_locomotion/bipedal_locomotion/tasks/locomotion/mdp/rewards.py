@@ -1977,6 +1977,9 @@ class _AlternationGateBase(ManagerTermBase):
     def __init__(self, cfg, env):
         super().__init__(cfg, env)
         self._last_swing = torch.full((env.num_envs,), -1, dtype=torch.long, device=env.device)
+        self._gate = torch.ones(env.num_envs, device=env.device)
+        self._swing_active = torch.zeros(env.num_envs, dtype=torch.bool, device=env.device)
+        self._pending_foot = torch.full((env.num_envs,), -1, dtype=torch.long, device=env.device)
         sensor = env.scene.sensors["contact_forces"]
         self._feet_ids = sensor.find_bodies("ankle_pitch_.*")[0]
         self._feet_sensor_ns = SimpleNamespace(
@@ -1988,21 +1991,49 @@ class _AlternationGateBase(ManagerTermBase):
         if env_ids is None:
             env_ids = torch.arange(self._env.num_envs, device=self._env.device)
         self._last_swing[env_ids] = -1
+        self._gate[env_ids] = 1.0
+        self._swing_active[env_ids] = False
+        self._pending_foot[env_ids] = -1
 
     def _gate_factor(self, env) -> torch.Tensor:
+        """Latch the alternation factor for the WHOLE swing event.
+
+        When a new swing starts (single stance begins and the airborne foot
+        differs from -- or matches -- the previous COMPLETED swing's foot), the
+        factor for that entire swing is decided once and held until the swing
+        ends (double stance / no single stance). Per-frame comparison would pay
+        full only on the first frame of every swing (0.347 mean vs intended
+        1.0-vs-0.3 distinction).
+        """
         contact_sensor: ContactSensor = env.scene.sensors["contact_forces"]
         contacts = (
             contact_sensor.data.net_forces_w_history[:, :, self._feet_ids, :].norm(dim=-1).max(dim=1)[0]
             > self.GATE_THRESHOLD
         )
         single_stance = torch.sum(contacts.int(), dim=1) == 1
-        swing_foot = torch.where(single_stance, (~contacts).long().argmax(dim=1), self._last_swing)
-        has_prev = self._last_swing >= 0
-        swapped = (swing_foot != self._last_swing) & has_prev
-        gate = torch.where(swapped, 1.0, self.SAME_LEG_FACTOR)
-        gate = torch.where(~has_prev, 1.0, gate)
-        self._last_swing = swing_foot
-        return gate
+        airborne_foot = (~contacts).long().argmax(dim=1)
+
+        in_swing = self._swing_active & single_stance
+        new_swing = (~self._swing_active) & single_stance
+        # Debounce: require the airborne foot to persist two consecutive frames
+        # before a new swing event is accepted.
+        new_swing &= airborne_foot == self._pending_foot
+
+        factor = self._gate.clone()
+        factor = torch.where(in_swing, self._gate, factor)
+
+        start_factor = torch.where(
+            (airborne_foot != self._last_swing) | (self._last_swing < 0), 1.0, self.SAME_LEG_FACTOR
+        )
+        factor = torch.where(new_swing, start_factor, factor)
+        self._gate = torch.where(new_swing, start_factor, self._gate)
+        self._last_swing = torch.where(
+            new_swing, airborne_foot, self._last_swing
+        )
+        self._gate = torch.where(single_stance, self._gate, self.SAME_LEG_FACTOR)
+        self._swing_active = single_stance
+        self._pending_foot = airborne_foot
+        return factor
 
 
 class GatedSwingFootClearance(_AlternationGateBase):
