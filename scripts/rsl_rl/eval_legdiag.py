@@ -24,7 +24,7 @@ parser.add_argument("--eval_seed", type=int, default=42)
 parser.add_argument("--mirror", action="store_true", default=False, help="Swap L/R initial joint positions")
 parser.add_argument("--phase_offset", type=float, default=0.0, help="Starting gait phase offset (radians)")
 parser.add_argument("--output_prefix", type=str, default="legdiag")
-cli_args = ["--fixed_spawn_dist"]  # pass to underlying eval if needed
+import cli_args  # isort: skip
 cli_args.add_rsl_rl_args(parser)
 AppLauncher.add_app_launcher_args(parser)
 args_cli, hydra_args = parser.parse_known_args()
