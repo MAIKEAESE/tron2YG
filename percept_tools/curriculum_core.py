@@ -53,13 +53,16 @@ class EpisodeTracker:
         self.passage[env_ids] = False
 
 
-def decide(passage, fell, is_stairs, disp_x, level, max_level, streak=None):
-    """Episode-end decision. Failure priority: a real failure vetoes promotion
-    and forces demotion. Buffer-row envs promote on clean forward displacement.
-    streak is accepted but IGNORED (single-pass promotion, block-1 semantics;
-    the streak-2 gate was tried in block 2 and rolled back same day).
+def decide(passage, fell, is_stairs, disp_x, level, max_level, min_level=1):
+    """Direction-pool semantics (v1.3.2, 2026-10-24): the verdict LOCKS at
+    passage. A pool env that passes its own goal (up-pool: TOP platform,
+    down-pool: BOTTOM platform) promotes even if it falls afterwards — the
+    pool's task ends at its own platform; failures beyond it must not veto
+    promotion. Any non-passage outcome (fell or timeout) demotes.
+    min_level: pool ladder floor (stair pools clamp at the easiest stair row;
+    the flat buffer row is pinned-replay-only and not part of any ladder).
     Returns (up, down, top_pass); top_pass = would-promote clamped at top row."""
-    down = fell | (is_stairs & ~passage)
+    down = is_stairs & ~passage
     up = torch.where(is_stairs, passage, ~fell & (disp_x >= FLAT_PROMOTE_DISP_M))
     up = up & ~down
     top_pass = up & (level >= max_level)
@@ -67,10 +70,13 @@ def decide(passage, fell, is_stairs, disp_x, level, max_level, streak=None):
     return up, down, top_pass
 
 
-def apply_levels(levels, types, origins_grid, env_ids, up, down, max_level):
+def apply_levels(levels, types, origins_grid, env_ids, up, down, max_level,
+                 min_level=1):
     """In-place level bookkeeping; returns (new_levels[k], new_origins[k,3]).
-    Replicates importer.update_env_origins mechanics minus random top-scatter."""
-    lv = (levels[env_ids] + up.long() - down.long()).clamp(0, int(max_level))
+    Replicates importer.update_env_origins mechanics minus random top-scatter;
+    clamps at min_level (pool floor) instead of zero."""
+    lv = (levels[env_ids] + up.long() - down.long()).clamp(
+        int(min_level), int(max_level))
     levels[env_ids] = lv
     return lv, origins_grid[lv, types[env_ids]]
 
@@ -123,12 +129,19 @@ def selftest():
     p = _run_episode(tr, 0, frames)
     check("undebounced_contact_no_pass", not p[0])
 
-    # (e) walked far past goal and confirmed, THEN fell: failure priority
+    # (e) verdict lock (v1.3.2): passed the pool goal, THEN fell beyond it ->
+    # still promotes; the pool's task ended at its own platform
     tr = EpisodeTracker(1, dev, confirm_frames=25)
     p = _run_episode(tr, 0, [(True, True, True, 0.3)] * 35)
     up, down, _ = decide(p, torch.tensor([True]), torch.tensor([True]),
                          torch.tensor([5.0]), torch.tensor([1]), max_level=3)
-    check("e_fall_after_far_walk_overrides", p[0] and (not up[0]) and down[0])
+    check("e_pass_then_fall_still_promotes", p[0] and up[0] and not down[0])
+    # fell WITHOUT passage still demotes (failure within the pool's own task)
+    tr = EpisodeTracker(1, dev, confirm_frames=25)
+    p = _run_episode(tr, 0, [(False, True, True, 0.0)] * 100)
+    up, down, _ = decide(p, torch.tensor([True]), torch.tensor([True]),
+                         torch.tensor([5.0]), torch.tensor([1]), max_level=3)
+    check("fail_before_goal_demotes", (not up[0]) and down[0])
 
     # 4. buffer row: clean forward displacement promotes (2.5 m, block-1
     #    semantics), short does not
@@ -141,16 +154,17 @@ def selftest():
                          torch.tensor([0]), max_level=3)
     check("flat_short_stays", (not up[0]) and (not down[0]))
 
-    # 5. apply_levels: top clamp, bottom clamp, origin indexing
-    levels = torch.tensor([3, 0, 1, 2])
+    # 5. apply_levels: top clamp, pool floor clamp (min_level=1), origin indexing
+    levels = torch.tensor([3, 1, 1, 2])
     types = torch.tensor([2, 1, 0, 3])
     grid = torch.arange(4 * 4 * 3, dtype=torch.float).reshape(4, 4, 3)
     ids = torch.tensor([0, 1, 2, 3])
     up = torch.tensor([True, False, False, False])
     down = torch.tensor([False, True, False, True])
-    lv, org = apply_levels(levels, types, grid, ids, up, down, max_level=3)
+    lv, org = apply_levels(levels, types, grid, ids, up, down, max_level=3,
+                           min_level=1)
     check("top_clamp", int(lv[0]) == 3 and torch.equal(org[0], grid[3, 2]))
-    check("bottom_clamp", int(lv[1]) == 0 and torch.equal(org[1], grid[0, 1]))
+    check("pool_floor_clamp", int(lv[1]) == 1 and torch.equal(org[1], grid[1, 1]))
     check("demoted_index", int(lv[3]) == 1 and torch.equal(org[3], grid[1, 3]))
 
     bad = [n for n, c in ok if not c]

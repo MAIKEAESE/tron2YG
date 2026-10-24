@@ -1,19 +1,18 @@
-"""S1 curriculum trainer (DESIGN.md v1.3): difficulty-row grid + per-env
-auto promotion/demotion.
+"""S1 direction-pool curriculum trainer (DESIGN v1.3.2, 2026-10-24 user spec).
 
-Replaces the official terrain_levels_vel criterion (distance-from-origin,
-direction-blind & fall-blind; source-verified + CPU-reproduced) with manifest
-route completion for promotion and failure-priority demotion, while REUSING
-the importer's level/origin bookkeeping (terrain_levels / terrain_types /
-env_origins <- terrain_origins grid, in-place).
-
-Grid: row 0 buffer (flat/rough), rows 1-3 stairs 04/06/08 cm, 4 cols, 8 m
-cells. Pinned replay envs (default 13 flat + 13 rough) never enter the
-curriculum; the rest self-level with top-row clamp (no random scatter).
-Role spawn on stair cells (--top_frac), origin spawn on flat/rough.
-Chunks of 50 updates; per chunk checkpoint + utilization monitor + level
-histogram monitor. Direction-blindness/fall-priority regressions live in
-curriculum_core.py selftest (run before training).
+ONE shared policy. Stair envs split into FIXED direction pools with
+independent level ladders (rows 1-3, pool floor at row 1):
+  up-pool   -> always spawns bottom, goal = TOP platform (up_goal)
+  down-pool -> always spawns top,    goal = BOTTOM platform (down_goal)
+Verdict LOCKS at passage: a pass promotes even if the env falls afterwards
+(failures beyond the pool's own goal must not veto promotion — the up pool
+is never judged on the descent). Any non-passage outcome demotes.
+Pinned replay pools (flat/rough, never in curriculum) provide regression
+samples. Round 1 keeps single-pass promotion / demote-on-fail thresholds
+(streak recorded per env as telemetry only; loosening deferred).
+Full-episode per-pool reward/length/displacement statistics — accumulated
+across the WHOLE episode and finalized only at true episode end, immune to
+rollout-window truncation.
 """
 from __future__ import annotations
 
@@ -22,6 +21,8 @@ import json
 import sys
 import traceback
 from pathlib import Path
+
+POOL_NAMES = ("flat", "rough", "up", "down")
 
 
 def build_type_manifests():
@@ -51,7 +52,10 @@ def main(args, simulation_app):
     import curriculum_core as cc
 
     out = Path(args.output_dir)
-    env_cfg = parse_env_cfg(args.task, device=args.device, num_envs=args.num_envs)
+    N = args.num_envs
+    assert args.pin_flat + args.pin_rough + args.pool_up + args.pool_down == N, \
+        f"pool sizes {args.pin_flat}+{args.pin_rough}+{args.pool_up}+{args.pool_down} != num_envs {N}"
+    env_cfg = parse_env_cfg(args.task, device=args.device, num_envs=N)
     agent_cfg = load_cfg_from_registry(args.task, "rsl_rl_cfg_entry_point")
     env_cfg.seed = args.seed
     agent_cfg.seed = args.seed
@@ -63,22 +67,6 @@ def main(args, simulation_app):
     if args.track_w is not None:
         env_cfg.rewards.track_lin_vel_xy.weight = args.track_w
         print(f"[CURR_TRACK_W] track_lin_vel_xy.weight={args.track_w}", flush=True)
-    if args.still_w:  # phase-2 knob, default OFF per staging decision
-        def _still_penalty(env, command_name, cruise_frac):
-            cmd = env.command_manager.get_command(command_name)
-            vx = env.scene["robot"].data.root_lin_vel_b[:, 0]
-            thr = cruise_frac * cmd[:, 0].abs().clamp(min=0.1)
-            stuck = (vx.abs() < thr) & (cmd[:, 0].abs() > 0.1)
-            return stuck.float()
-        from isaaclab.managers import RewardTermCfg as _RW
-        env_cfg.rewards.still_penalty = _RW(
-            func=_still_penalty, weight=-abs(args.still_w),
-            params={"command_name": "base_velocity", "cruise_frac": args.still_thr})
-        print(f"[CURR_STILL_PENALTY] w={-abs(args.still_w)} thr_frac={args.still_thr}", flush=True)
-
-    print("[CURR_KNOBS] block-1 semantics restored 2026-10-24: init=random rows 1-3, "
-          f"single-pass promotion, flat_disp=2.5m, original obs-noise, "
-          f"track_w={args.track_w} top_frac={args.top_frac}", flush=True)
 
     step_heights = (0.04, 0.06, 0.08)
     num_rows, num_cols = 1 + len(step_heights), 4
@@ -89,7 +77,7 @@ def main(args, simulation_app):
     kind_of_key = {"flat": 0, "rough": 1, "stairs04": 2, "stairs06": 3, "stairs08": 4}
     stair_key_of_kind = {2: "stairs04", 3: "stairs06", 4: "stairs08"}
 
-    def make_curriculum_spawn(top_frac):
+    def make_pool_spawn():
         def _spawn(env, env_ids, manifests):
             import torch
             robot = env.scene["robot"]
@@ -98,8 +86,9 @@ def main(args, simulation_app):
                 env._stair_default_root_offset = float(robot.data.default_root_state[0, 2])
             off = env._stair_default_root_offset
             eorig = env.scene.env_origins
-            if not hasattr(env, "_curr_kind"):       # lazy init (startup reset)
+            if not hasattr(env, "_curr_pool"):         # lazy init (startup reset)
                 n = eorig.shape[0]
+                env._curr_pool = torch.zeros(n, dtype=torch.long, device=dev)
                 env._curr_kind = torch.zeros(n, dtype=torch.long, device=dev)
                 env._curr_goal_x = torch.full((n,), float("inf"), device=dev)
                 env._curr_stairs = torch.zeros(n, dtype=torch.bool, device=dev)
@@ -108,10 +97,10 @@ def main(args, simulation_app):
             ids = env_ids.tolist() if env_ids is not None else list(range(eorig.shape[0]))
             z_samples = []
             for i in ids:
-                kind = int(env._curr_kind[i])
-                if kind >= 2:                        # stair cell: roled spawn
-                    man = manifests[stair_key_of_kind[kind]]
-                    take_bottom = bool(torch.rand(1, device=dev).item() < (1.0 - top_frac))
+                pool = int(env._curr_pool[i])          # 0 flat / 1 rough / 2 up / 3 down
+                if pool >= 2:                          # stair cell: FIXED role per pool
+                    man = manifests[stair_key_of_kind[int(env._curr_kind[i])]]
+                    take_bottom = pool == 2           # up-pool: bottom; down-pool: top
                     zone = man["spawn_zones"]["bottom" if take_bottom else "top"]
                     xl = float(torch.empty(1).uniform_(*zone["x_local"]).item())
                     x = float(eorig[i, 0]) + (xl - 1.0)
@@ -120,14 +109,15 @@ def main(args, simulation_app):
                                   else man["goals"]["down_goal_local_x"])
                     env._curr_goal_x[i] = float(eorig[i, 0]) + (goal_local - 1.0)
                     env._curr_stairs[i] = True
-                    env._role_tally["bottom" if take_bottom else "top"] = \
-                        env._role_tally.get("bottom" if take_bottom else "top", 0) + 1
-                else:                                # flat/rough: origin spawn
+                    env._role_tally[POOL_NAMES[pool]] = \
+                        env._role_tally.get(POOL_NAMES[pool], 0) + 1
+                else:                                  # flat/rough: origin spawn
                     x = float(eorig[i, 0]) + float(torch.empty(1).uniform_(-0.10, 0.10).item())
                     gz = 0.0
-                    env._curr_goal_x[i] = float("inf")   # goal unreachable -> past False
+                    env._curr_goal_x[i] = float("inf")   # unreachable -> past False
                     env._curr_stairs[i] = False
-                    env._role_tally["flat"] = env._role_tally.get("flat", 0) + 1
+                    env._role_tally[POOL_NAMES[pool]] = \
+                        env._role_tally.get(POOL_NAMES[pool], 0) + 1
                 y = float(eorig[i, 1]) + float(torch.empty(1).uniform_(-0.10, 0.10).item())
                 z = gz + off + 0.01
                 yaw = float(torch.empty(1).uniform_(-0.05, 0.05).item())
@@ -140,16 +130,14 @@ def main(args, simulation_app):
                     torch.tensor([i], dtype=torch.long, device=dev))
                 env._curr_x0[i] = x
                 if len(z_samples) < 6:
-                    z_samples.append((i, "stairs" if kind >= 2 else "flat/rough",
-                                      round(z, 3), round(gz, 3)))
+                    z_samples.append((i, POOL_NAMES[pool], round(z, 3), round(gz, 3)))
             if z_samples and not getattr(env, "_spawn_z_printed", False):
                 env._spawn_z_printed = True
                 print(f"[CURR_SPAWN_Z] off={off:.3f} samples={z_samples}", flush=True)
         return _spawn
 
     env_cfg.events.reset_robot_base = EventTermCfg(
-        func=make_curriculum_spawn(args.top_frac), mode="reset",
-        params={"manifests": mans})
+        func=make_pool_spawn(), mode="reset", params={"manifests": mans})
 
     print("[CURR_ENV_BEGIN]", flush=True)
     env = gym.make(args.task, cfg=env_cfg)
@@ -158,8 +146,6 @@ def main(args, simulation_app):
     print("[CURR_ENV_OK]", flush=True)
 
     # ---- grid verification: row-major sequence <-> terrain_origins grid ----
-    # IsaacLab 2.3.1 layout: ROWS run along x, COLS along y
-    # (terrain_generator.py: transform[0:2,-1] = (row+.5)*size[0], (col+.5)*size[1]).
     terrain = unw.scene.terrain
     dev = unw.device
     gen_types = list(terrain.terrain_generator.sub_terrain_types)
@@ -168,7 +154,7 @@ def main(args, simulation_app):
     mismatch = [(r, c, gen_types[r * num_cols + c], seq[r * num_cols + c])
                 for r in range(num_rows) for c in range(num_cols)
                 if gen_types[r * num_cols + c] != seq[r * num_cols + c]]
-    og = terrain.terrain_origins                       # [rows, cols, 3] (numpy on gen)
+    og = terrain.terrain_origins
     origins_grid = og if torch.is_tensor(og) else torch.tensor(
         og, dtype=torch.float, device=dev)
     drow_x = float(origins_grid[1, 0, 0] - origins_grid[0, 0, 0])   # rows -> +x
@@ -210,9 +196,7 @@ def main(args, simulation_app):
         env.step = zeroed_step
         print("[CURR_ARM_A] heights zeroed on get_observations AND step returns", flush=True)
 
-    # ---- curriculum tracker hooks -----------------------------------------
-    N = args.num_envs
-    dev = unw.device
+    # ---- pool assignment + curriculum tracker hooks -------------------------
     robot = unw.scene["robot"]
     contact = unw.scene.sensors["contact_forces"]
     feet_ids = contact.find_bodies("ankle_pitch_.*")[0]
@@ -220,18 +204,30 @@ def main(args, simulation_app):
     tm = unw.termination_manager
     dt = unw.step_dt
     tracker = cc.EpisodeTracker(N, dev, confirm_frames=int(round(0.5 / dt)))
-    stats = {"episodes": 0, "up": 0, "up_stairs": 0, "up_flat": 0, "down": 0,
-             "down_fell": 0, "down_nopass": 0, "top_pass": 0}
-    for _r in range(4):
-        stats[f"up_row{_r}"] = 0
-        stats[f"down_row{_r}"] = 0
 
-    pin_flat = list(range(0, args.pin_flat))
-    pin_rough = list(range(args.pin_flat, args.pin_flat + args.pin_rough))
-    pinned = set(pin_flat) | set(pin_rough)
-    curr_ids = [i for i in range(N) if i not in pinned]
-    pinned_mask = torch.zeros(N, dtype=torch.bool, device=dev)
-    pinned_mask[list(pinned)] = True
+    F, R = args.pin_flat, args.pin_rough
+    U, D = args.pool_up, args.pool_down
+    pool = torch.zeros(N, dtype=torch.long, device=dev)
+    pool[F:F + R] = 1
+    pool[F + R:F + R + U] = 2
+    pool[F + R + U:] = 3
+    unw._curr_pool = pool
+    unw._streak = torch.zeros(N, dtype=torch.long, device=dev)
+    unw._last_disp = torch.zeros(N, device=dev)
+
+    pool_ids = {"flat": torch.arange(0, F, device=dev),
+                "rough": torch.arange(F, F + R, device=dev),
+                "up": torch.arange(F + R, F + R + U, device=dev),
+                "down": torch.arange(F + R + U, N, device=dev)}
+    curr_ids = torch.cat([pool_ids["up"], pool_ids["down"]])
+
+    stats = {"episodes": 0, "up_pool_up": 0, "up_pool_down": 0, "up_pool_top": 0,
+             "down_pool_up": 0, "down_pool_down": 0, "down_pool_top": 0}
+    # full-episode per-pool statistics (whole-episode sums, finalized at end)
+    pool_ep = {p: {"n": 0, "rew": 0.0, "length": 0, "disp": 0.0}
+               for p in POOL_NAMES}
+    ep_rew = torch.zeros(N, device=dev)
+    ep_len = torch.zeros(N, dtype=torch.long, device=dev)
 
     def refresh_kinds():
         keys = [gen_types[int(l) * num_cols + int(c)]
@@ -256,25 +252,34 @@ def main(args, simulation_app):
             fell = ~tm.get_term("time_out")[idx]
             is_st = unw._curr_stairs[idx]
             disp = robot.data.root_pos_w[idx, 0] - unw._curr_x0[idx]
+            unw._last_disp[idx] = disp                 # for full-episode stats
             level = terrain.terrain_levels[idx]
             up, down, top = cc.decide(tracker.passage[idx], fell, is_st, disp,
-                                      level, num_rows - 1)
-            pin = pinned_mask[idx]
-            up, down, top = up & ~pin, down & ~pin, top & ~pin
-            for _r in range(num_rows):
-                stats[f"up_row{_r}"] += int((up & (level == _r)).sum())
-                stats[f"down_row{_r}"] += int((down & (level == _r)).sum())
+                                      level, num_rows - 1, min_level=1)
+            is_up_pool = unw._curr_pool[idx] == 2
+            is_down_pool = unw._curr_pool[idx] == 3
+            in_pool = is_up_pool | is_down_pool
+            up, down, top = up & in_pool, down & in_pool, top & in_pool
+            # streak telemetry (round 1: recorded, NOT gating)
+            success_now = in_pool & tracker.passage[idx]
+            unw._streak[idx] = torch.where(
+                in_pool,
+                torch.where(success_now, unw._streak[idx] + 1,
+                            torch.zeros_like(unw._streak[idx])),
+                unw._streak[idx])
             _, new_org = cc.apply_levels(
                 terrain.terrain_levels, terrain.terrain_types,
-                origins_grid, idx, up, down, num_rows - 1)
+                origins_grid, idx, up, down, num_rows - 1, min_level=1)
             terrain.env_origins[idx] = new_org         # in-place: scene ref preserved
-            stats["episodes"] += int(idx.numel())
-            stats["up"] += int(up.sum()); stats["up_stairs"] += int((up & is_st).sum())
-            stats["up_flat"] += int((up & ~is_st).sum())
-            stats["down"] += int(down.sum())
-            stats["down_fell"] += int((down & fell).sum())
-            stats["down_nopass"] += int((down & ~fell).sum())
-            stats["top_pass"] += int(top.sum())
+            stats["episodes"] += int(in_pool.sum())
+            stats["up_pool_up"] += int((up & is_up_pool).sum())
+            stats["up_pool_down"] += int((down & is_up_pool).sum())
+            stats["up_pool_top"] += int((top & is_up_pool).sum())
+            stats["down_pool_up"] += int((up & is_down_pool).sum())
+            stats["down_pool_down"] += int((down & is_down_pool).sum())
+            stats["down_pool_top"] += int((top & is_down_pool).sum())
+            unw._streak[idx] = torch.where(
+                up | down, torch.zeros_like(unw._streak[idx]), unw._streak[idx])
             refresh_kinds()
 
     orig_reset = unw._reset_idx
@@ -289,38 +294,58 @@ def main(args, simulation_app):
     unw._reset_idx = reset_hook
 
     orig_step = env.step
-    curr_fine = []                                  # (common_step, level_hist) samples
+    curr_fine = []                                     # (common_step, level_hist) samples
 
     def tracked_step(actions):
+        nonlocal ep_rew, ep_len                    # += rebinds names -> locals otherwise
         r = orig_step(actions)
         with torch.no_grad():
-            alive = ~r[2].bool()
+            rewards, dones = r[1], r[2].bool()
+            ep_rew += rewards                          # final step included
+            ep_len += 1
+            if dones.any():                            # finalize FULL episodes
+                didx = dones.nonzero(as_tuple=False).squeeze(-1).to(dev)
+                for p in POOL_NAMES:
+                    m = unw._curr_pool[didx] == POOL_NAMES.index(p)
+                    if m.any():
+                        k = didx[m]
+                        pool_ep[p]["n"] += int(k.numel())
+                        pool_ep[p]["rew"] += float(ep_rew[k].sum())
+                        pool_ep[p]["length"] += int(ep_len[k].sum())
+                        pool_ep[p]["disp"] += float(unw._last_disp[k].sum())
+                ep_rew[didx] = 0.0
+                ep_len[didx] = 0
+            alive = ~dones
             if alive.any():
                 idx = alive.nonzero(as_tuple=False).squeeze(-1).to(dev)
                 past, fc, vx = frame_signals(idx)
                 tracker.update(idx, past, fc, vx)
             unw._cc_tick = getattr(unw, "_cc_tick", 0) + 1
             if unw._cc_tick % 250 == 0:
-                hh = torch.bincount(terrain.terrain_levels[~pinned_mask],
+                hh = torch.bincount(terrain.terrain_levels[curr_ids],
                                     minlength=num_rows)
                 curr_fine.append((int(unw.common_step_counter),
                                   [int(v) for v in hh.tolist()]))
         return r
     env.step = tracked_step
 
-    # ---- initial assignment: pinned replay envs + curriculum envs ---------
+    # ---- initial assignment: pinned replay pools + direction pools --------
     lv, ty = terrain.terrain_levels, terrain.terrain_types
-    lv[pin_flat] = 0; ty[pin_flat] = 0                 # flat cells: (0, col0/col2)
-    lv[pin_rough] = 0; ty[pin_rough] = 1               # rough cells: (0, col1/col3)
-    ty[curr_ids] = torch.arange(len(curr_ids), device=dev) % num_cols
-    lv[curr_ids] = torch.randint(1, num_rows, (len(curr_ids),), device=dev)
-    # 2026-10-24: random start rows (block-1 semantics; block-2 tried all-row-1
-    # start and was rolled back the same day)
+    lv[pool_ids["flat"]] = 0; ty[pool_ids["flat"]] = 0
+    lv[pool_ids["rough"]] = 0; ty[pool_ids["rough"]] = 1
+    cid = curr_ids.tolist()
+    ty[cid] = torch.arange(len(cid), device=dev) % num_cols
+    lv[cid] = torch.randint(1, num_rows, (len(cid),), device=dev)
     terrain.env_origins[:] = origins_grid[lv, ty]
     refresh_kinds()
-    hist0 = torch.bincount(terrain.terrain_levels[~pinned_mask], minlength=num_rows)
-    print(f"[CURR_INIT] pinned_flat={len(pin_flat)} pinned_rough={len(pin_rough)} "
-          f"curriculum_envs={len(curr_ids)} init_level_hist={hist0.tolist()}", flush=True)
+    hist_u = torch.bincount(terrain.terrain_levels[pool_ids["up"]], minlength=num_rows)
+    hist_d = torch.bincount(terrain.terrain_levels[pool_ids["down"]], minlength=num_rows)
+    print(f"[CURR_INIT] pools flat={F} rough={R} up={U} down={D} "
+          f"up_hist={hist_u.tolist()} down_hist={hist_d.tolist()}", flush=True)
+    print("[CURR_KNOBS] direction pools v1.3.2: verdict locks at pool goal "
+          "(up->TOP platform, down->BOTTOM platform); floor row 1; "
+          "single-pass promote / demote-on-fail (streak telemetry only); "
+          f"full-episode per-pool stats; track_w={args.track_w}", flush=True)
     with torch.no_grad():
         unw._reset_idx(torch.arange(N, device=dev))    # spawn everyone at assigned cells
 
@@ -341,8 +366,21 @@ def main(args, simulation_app):
             d_rand = (a2 - a0).abs().amax(dim=-1)
             W = runner.alg.actor_critic.state_dict()["actor.0.weight"]
             C = runner.alg.actor_critic.state_dict()["critic.0.weight"]
-            h = torch.bincount(terrain.terrain_levels[~pinned_mask],
-                               minlength=num_rows).tolist()
+            hu = torch.bincount(terrain.terrain_levels[pool_ids["up"]],
+                                minlength=num_rows).tolist()
+            hd = torch.bincount(terrain.terrain_levels[pool_ids["down"]],
+                                minlength=num_rows).tolist()
+            ep_view = {}
+            for p in POOL_NAMES:
+                n = pool_ep[p]["n"]
+                ep_view[p] = {"episodes": n,
+                              "mean_reward": round(pool_ep[p]["rew"] / n, 3) if n else None,
+                              "mean_length": round(pool_ep[p]["length"] / n, 1) if n else None,
+                              "mean_disp_m": round(pool_ep[p]["disp"] / n, 3) if n else None}
+                for k in pool_ep[p]:
+                    pool_ep[p][k] = 0 if isinstance(pool_ep[p][k], int) else 0.0
+            stk_u = unw._streak[pool_ids["up"]].float()
+            stk_d = unw._streak[pool_ids["down"]].float()
             m = {"tag": tag, "iteration": int(runner.current_learning_iteration),
                  "heights_norm_actor": float(W[:, 45:166].norm()),
                  "heights_norm_critic": float(C[:, 45:166].norm()),
@@ -350,21 +388,31 @@ def main(args, simulation_app):
                  "perturb_zero_max_P95": float(d_zero.quantile(0.95)),
                  "perturb_rand_max_P50": float(d_rand.median()),
                  "perturb_rand_max_P95": float(d_rand.quantile(0.95)),
-                 "level_hist_curriculum": h, "curriculum_stats": dict(stats),
+                 "up_pool_hist": hu, "down_pool_hist": hd,
+                 "curriculum_stats": dict(stats),
+                 "pool_episodes": ep_view,
+                 "streak_mean_up": round(float(stk_u.mean()), 2),
+                 "streak_mean_down": round(float(stk_d.mean()), 2),
                  "role_tally": dict(getattr(unw, "_role_tally", {}))}
             try:                                       # native TB curriculum curves
                 wr = getattr(runner, "writer", None)
                 if wr is not None:
                     itn = int(runner.current_learning_iteration)
-                    tot = sum(h) or 1
-                    dom = max(range(len(h)), key=lambda i: h[i])
-                    wr.add_scalar("curriculum/dominant_level", dom, itn)
-                    for i, v in enumerate(h):
-                        wr.add_scalar(f"curriculum/share_row{i}", v / tot, itn)
-                        wr.add_scalar(f"curriculum/envs_row{i}", v, itn)
-                    for k_ in ("episodes", "up", "up_stairs", "up_flat", "down"):
-                        wr.add_scalar(f"curriculum/{k_}",
-                                      m["curriculum_stats"][k_], itn)
+                    for name, h in (("up", hu), ("down", hd)):
+                        tot = sum(h) or 1
+                        dom = max(range(len(h)), key=lambda i: h[i])
+                        wr.add_scalar(f"curriculum/{name}_dominant_level", dom, itn)
+                        for i, v in enumerate(h):
+                            wr.add_scalar(f"curriculum/{name}_share_row{i}", v / tot, itn)
+                            wr.add_scalar(f"curriculum/{name}_envs_row{i}", v, itn)
+                    for k_ in ("up_pool_up", "up_pool_down", "down_pool_up",
+                               "down_pool_down", "episodes"):
+                        wr.add_scalar(f"curriculum/{k_}", m["curriculum_stats"][k_], itn)
+                    for p in POOL_NAMES:
+                        v = m["pool_episodes"][p]
+                        if v["mean_reward"] is not None:
+                            wr.add_scalar(f"pool_ep/{p}_mean_reward", v["mean_reward"], itn)
+                            wr.add_scalar(f"pool_ep/{p}_mean_length", v["mean_length"], itn)
                     for s_step, s_hist in curr_fine:
                         s_tot = sum(s_hist) or 1
                         s_dom = max(range(len(s_hist)), key=lambda i: s_hist[i])
@@ -397,16 +445,17 @@ def main(args, simulation_app):
             "parent_checkpoint_updates": 401,
             "adaptation_updates": (ci + 1) * 50,
             "arm": args.arm, "lr": {"ppo": 1e-5, "encoder": 1e-5},
-            "stage": "S1-rowgrid-v1.3",
-            "curriculum": {"level_hist": mon["level_hist_curriculum"],
+            "stage": "S1-pools-v1.3.2",
+            "curriculum": {"up_hist": mon["up_pool_hist"],
+                           "down_hist": mon["down_pool_hist"],
                            "stats": mon["curriculum_stats"],
-                           "top_frac": args.top_frac,
-                           "pin_flat": args.pin_flat, "pin_rough": args.pin_rough},
+                           "pool_episodes": mon["pool_episodes"],
+                           "pools": {"flat": F, "rough": R, "up": U, "down": D}},
             "params_finite": params_finite,
         }, out / f"model_{args.arm}_{(ci+1)*50:03d}.pt")
         print(f"[CURR_CHUNK_OK] {ci+1}/{chunks} it={it} finite={params_finite} "
-              f"hist={mon['level_hist_curriculum']} stats={json.dumps(mon['curriculum_stats'])}",
-              flush=True)
+              f"up_hist={mon['up_pool_hist']} down_hist={mon['down_pool_hist']} "
+              f"stats={json.dumps(mon['curriculum_stats'])}", flush=True)
         print(f"[CURR_MON] {json.dumps(mon)}", flush=True)
         if not params_finite:
             print("[CURR_NONFINITE_ABORT]", flush=True)
@@ -415,9 +464,9 @@ def main(args, simulation_app):
     (out / f"monitors_{args.arm}.json").write_text(json.dumps(mons, indent=1))
     (out / "run_meta.json").write_text(json.dumps({
         "arm": args.arm, "chunks": chunks, "iters": args.iters,
-        "num_envs": args.num_envs, "track_w": args.track_w,
-        "top_frac": args.top_frac, "pin_flat": args.pin_flat,
-        "pin_rough": args.pin_rough, "design": "DESIGN.md v1.3 rowgrid",
+        "num_envs": N, "track_w": args.track_w,
+        "pools": {"flat": F, "rough": R, "up": U, "down": D},
+        "design": "DESIGN.md v1.3.2 direction pools",
         "checkpoint": str(Path(args.checkpoint).resolve())}, indent=1))
     env.close()
     print("[CURR_DONE]", flush=True)
@@ -429,16 +478,14 @@ if __name__ == "__main__":
     parser.add_argument("--arm", choices=("A", "B"), default="B")
     parser.add_argument("--checkpoint", required=True)
     parser.add_argument("--output_dir", required=True)
-    parser.add_argument("--num_envs", type=int, default=64)
+    parser.add_argument("--num_envs", type=int, default=4096)
     parser.add_argument("--iters", type=int, default=200)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--track_w", type=float, default=2.5)
-    parser.add_argument("--top_frac", type=float, default=0.25,
-                        help="fraction of stair spawns from the TOP platform (down task)")
-    parser.add_argument("--pin_flat", type=int, default=13)
-    parser.add_argument("--pin_rough", type=int, default=13)
-    parser.add_argument("--still_w", type=float, default=0.0)
-    parser.add_argument("--still_thr", type=float, default=0.175)
+    parser.add_argument("--pin_flat", type=int, default=819)
+    parser.add_argument("--pin_rough", type=int, default=819)
+    parser.add_argument("--pool_up", type=int, default=1843)
+    parser.add_argument("--pool_down", type=int, default=615)
     from isaaclab.app import AppLauncher  # noqa: E402
     AppLauncher.add_app_launcher_args(parser)
     args = parser.parse_args()
