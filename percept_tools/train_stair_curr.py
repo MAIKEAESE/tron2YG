@@ -67,6 +67,105 @@ def main(args, simulation_app):
     if args.track_w is not None:
         env_cfg.rewards.track_lin_vel_xy.weight = args.track_w
         print(f"[CURR_TRACK_W] track_lin_vel_xy.weight={args.track_w}", flush=True)
+    if args.still_w:  # down-pool sustained-stall penalty (user spec v1.3.3)
+        from isaaclab.managers import RewardTermCfg as _RW
+
+        def _down_stall_penalty(env):
+            flag = getattr(env, "_down_stall", None)
+            if flag is None:
+                import torch as _t
+                flag = _t.zeros(env.num_envs, dtype=_t.bool, device=env.device)
+            return flag.float()
+
+        env_cfg.rewards.down_stall_penalty = _RW(
+            func=_down_stall_penalty, weight=-abs(args.still_w))
+        print(f"[CURR_STALL_PENALTY] down-pool ONLY; sustained "
+              f"{cc.STALL_CONFIRM_WINDOWS} consecutive {cc.STALL_WINDOW_STEPS}-step "
+              f"windows < {cc.STALL_PROG_M} m; grace {cc.STALL_GRACE_WINDOWS} "
+              f"windows; w={-abs(args.still_w)}", flush=True)
+    if args.fh_w:  # down-pool foothold guidance with CoM-stride binding (v1.3.4)
+        from isaaclab.managers import RewardTermCfg as _RW2
+
+        def _foothold_reward(env):
+            import torch as _t
+            fh = getattr(env, "_fh", None)
+            if fh is None:
+                return _t.zeros(env.num_envs, device=env.device)
+            diag = getattr(env, "_fh_diag", None)
+            if diag is None:
+                diag = env._fh_diag = {"land": 0, "paid": 0, "sum": 0.0}
+            if not hasattr(env, "_bonus_diag"):
+                env._bonus_diag = {"paid": 0, "sum": 0.0}
+            if not hasattr(env, "_fh_r_step"):
+                import torch as _rt
+                env._fh_r_step = _rt.zeros(env.num_envs, device=env.device)
+                env._fh_tgt_step = _rt.full((env.num_envs,), -1,
+                                            dtype=_rt.long, device=env.device)
+            env._fh_r_step.fill_(0.0)
+            env._fh_tgt_step.fill_(-1)
+            robot = env.scene["robot"]
+            contact = env.scene.sensors["contact_forces"]
+            feet_ids = contact.find_bodies("ankle_pitch_.*")[0]
+            feet_body = robot.find_bodies("ankle_pitch_.*")[0]
+            fz = contact.data.net_forces_w_history[:, -1][:, feet_ids].norm(dim=-1)
+            now = fz >= cc.CONTACT_FORCE_N
+            landing = now & ~env._fh_contact
+            env._fh_contact = now.clone()
+            reward = _t.zeros(env.num_envs, device=env.device)
+            for foot in (0, 1):
+                m = landing[:, foot]
+                if m.any():
+                    idx = m.nonzero(as_tuple=False).squeeze(-1)
+                    r, t_idx = fh.on_landing(
+                        idx, foot,
+                        robot.data.body_pos_w[idx, feet_body[foot], 0],
+                        robot.data.root_pos_w[idx, 0])
+                    reward[idx] += r
+                    env._fh_r_step[idx] += r
+                    env._fh_tgt_step[idx] = t_idx
+                    diag["land"] += int(idx.numel())
+                    diag["paid"] += int((r > 0.05).sum())
+                    diag["sum"] += float(r.sum())
+            # RewardManager multiplies by dt (0.02): without this divide, a
+            # one-shot event reward is diluted 50x vs per-step terms and the
+            # guide is ~1000x weaker than track_lin_vel at episode level
+            return reward / env.step_dt
+
+        env_cfg.rewards.down_foothold = _RW2(func=_foothold_reward,
+                                             weight=float(args.fh_w))
+        print(f"[CURR_FOOTHOLD] down-pool tread-center targets; reward = "
+              f"precision({cc.FOOTHOLD_TOL_M}m tol) x CoM-stride("
+              f"{cc.FOOTHOLD_STRIDE_REF_M}m ref) — farmed steps pay ~0; "
+              f"w={args.fh_w}", flush=True)
+        if args.bonus_w:  # one-shot first-step bounty, PARALLEL term (v1.3.6)
+            def _first_step_bonus(env):
+                import torch as _t
+                fh = getattr(env, "_fh", None)
+                rstep = getattr(env, "_fh_r_step", None)
+                tstep = getattr(env, "_fh_tgt_step", None)
+                if fh is None or rstep is None or tstep is None:
+                    return _t.zeros(env.num_envs, device=env.device)
+                elig = (rstep >= cc.BONUS_QUALITY) & (env._curr_pool == 3)
+                bonus = _t.zeros(env.num_envs, device=env.device)
+                if elig.any():
+                    idx = elig.nonzero(as_tuple=False).squeeze(-1)
+                    bonus[idx] = fh.first_step_bonus(idx, rstep[idx], tstep[idx])
+                    diag = getattr(env, "_bonus_diag", None)
+                    if diag is not None:
+                        diag["paid"] += int((bonus > 0).sum())
+                        diag["sum"] += float((bonus > 0).sum()) * args.bonus_w
+                return bonus * (1.0 / env.step_dt)   # event reward: cancel dt
+            # NOTE: relies on term order — down_foothold runs first in the
+            # reward manager (insertion order) and fills env._fh_r_step
+            env_cfg.rewards.down_first_step_bonus = _RW2(
+                func=_first_step_bonus, weight=float(args.bonus_w))
+            import torch as _bt
+            _bt  # noqa: F401 (keep torch import local)
+            print(f"[CURR_FIRST_BONUS] per-TREAD one-shot (variant A): first "
+                  f"qualifying landing on EACH tread pays once per episode "
+                  f"(up to {cc.FOOTHOLD_NUM_TARGETS}x); quality>="
+                  f"{cc.BONUS_QUALITY}; w={args.bonus_w} "
+                  f"(parallel to foothold, separate TB curve)", flush=True)
 
     step_heights = (0.04, 0.06, 0.08)
     num_rows, num_cols = 1 + len(step_heights), 4
@@ -95,6 +194,11 @@ def main(args, simulation_app):
                 env._curr_x0 = torch.zeros(n, device=dev)
                 env._role_tally = {}
             ids = env_ids.tolist() if env_ids is not None else list(range(eorig.shape[0]))
+            if not hasattr(env, "_fh"):               # foothold guide (v1.3.4)
+                import curriculum_core as _cc
+                env._fh = _cc.FootholdGuide(eorig.shape[0], dev)
+                env._fh_contact = torch.zeros(eorig.shape[0], 2,
+                                              dtype=torch.bool, device=dev)
             z_samples = []
             for i in ids:
                 pool = int(env._curr_pool[i])          # 0 flat / 1 rough / 2 up / 3 down
@@ -111,6 +215,21 @@ def main(args, simulation_app):
                     env._curr_stairs[i] = True
                     env._role_tally[POOL_NAMES[pool]] = \
                         env._role_tally.get(POOL_NAMES[pool], 0) + 1
+                    if pool == 3:                     # down pool: tread targets
+                        man_t = man
+                        d_t = man_t["tread_m"]
+                        dn = sorted([e for e in man_t["edges"] if e["dir"] == "down"],
+                                    key=lambda e: e["x_local"])
+                        tg = [(float(eorig[i, 0]) + (e["x_local"] + d_t / 2 - 1.0),
+                               e["z_low"]) for e in dn]
+                        tg.append((float(eorig[i, 0])
+                                   + (dn[-1]["x_local"] + d_t + 0.3 - 1.0), 0.0))
+                        k_t = min(len(tg), env._fh.targets.shape[1])
+                        env._fh.targets[i, :k_t] = torch.tensor(
+                            tg[:k_t], dtype=torch.float, device=dev)
+                        env._fh.valid[i] = True
+                    else:
+                        env._fh.valid[i] = False
                 else:                                  # flat/rough: origin spawn
                     x = float(eorig[i, 0]) + float(torch.empty(1).uniform_(-0.10, 0.10).item())
                     gz = 0.0
@@ -204,6 +323,13 @@ def main(args, simulation_app):
     tm = unw.termination_manager
     dt = unw.step_dt
     tracker = cc.EpisodeTracker(N, dev, confirm_frames=int(round(0.5 / dt)))
+    stall_det = cc.StallDetector(N, dev)
+    unw._down_stall = stall_det.stall
+    # lead-time telemetry: first tick the next tread is visible in the FWD
+    # scan -> first swing-start (foot liftoff) after that; once per episode
+    unw._lt_seen = torch.full((N,), -1, dtype=torch.long, device=dev)
+    unw._lt_done = torch.zeros(N, dtype=torch.bool, device=dev)
+    unw._lt_contact = torch.zeros(N, 2, dtype=torch.bool, device=dev)
 
     F, R = args.pin_flat, args.pin_rough
     U, D = args.pool_up, args.pool_down
@@ -222,7 +348,8 @@ def main(args, simulation_app):
     curr_ids = torch.cat([pool_ids["up"], pool_ids["down"]])
 
     stats = {"episodes": 0, "up_pool_up": 0, "up_pool_down": 0, "up_pool_top": 0,
-             "down_pool_up": 0, "down_pool_down": 0, "down_pool_top": 0}
+             "down_pool_up": 0, "down_pool_down": 0, "down_pool_top": 0,
+             "lt_sum_s": 0.0, "lt_n": 0}
     # full-episode per-pool statistics (whole-episode sums, finalized at end)
     pool_ep = {p: {"n": 0, "rew": 0.0, "length": 0, "disp": 0.0}
                for p in POOL_NAMES}
@@ -291,6 +418,11 @@ def main(args, simulation_app):
             refresh_kinds()                            # startup/forced reset: spawn only
         orig_reset(env_ids)
         tracker.reset(idx)
+        stall_det.on_reset(idx, unw._curr_x0)          # fresh grace per episode
+        unw._lt_seen[idx] = -1                         # fresh lead-time window
+        unw._lt_done[idx] = False
+        if hasattr(unw, "_fh"):
+            unw._fh.reset_env(idx)                     # neutral first-stride per episode
     unw._reset_idx = reset_hook
 
     orig_step = env.step
@@ -321,6 +453,45 @@ def main(args, simulation_app):
                 past, fc, vx = frame_signals(idx)
                 tracker.update(idx, past, fc, vx)
             unw._cc_tick = getattr(unw, "_cc_tick", 0) + 1
+            # v1.3.5 lead-time telemetry (down pool): next-tread visibility
+            # in the FWD scan -> first foot liftoff after first sight
+            if args.fwd_shift > 0 and (unw._curr_pool == 3).any():
+                idx_d = (unw._curr_pool == 3).nonzero(as_tuple=False).squeeze(-1)
+                fwd_s = unw.scene.sensors.get("height_scanner_fwd")
+                if fwd_s is not None:
+                    tg = unw._fh.targets[idx_d]                 # [k, T, 2]
+                    rx = robot.data.root_pos_w[idx_d, 0]
+                    ahead = tg[..., 0] > (rx + 0.15).unsqueeze(-1)
+                    err_x = torch.where(ahead, (tg[..., 0] - rx.unsqueeze(-1)).abs(),
+                                        torch.full_like(tg[..., 0], 1e9))
+                    nxt_i = err_x.argmin(-1)
+                    nxt = tg[torch.arange(idx_d.numel(), device=dev), nxt_i]
+                    hits = fwd_s.data.ray_hits_w[idx_d]         # [k, 121, 3]
+                    hz, hx = hits[..., 2], hits[..., 0]
+                    vis = (torch.isfinite(hz)
+                           & (hz > nxt[:, 1] - 0.02) & (hz < nxt[:, 1] + 0.02)
+                           & (hx > nxt[:, 0] - 0.25) & (hx < nxt[:, 0] + 0.25)).any(-1)
+                    seen = unw._lt_seen[idx_d]
+                    newly = vis & (seen < 0)
+                    if newly.any():
+                        unw._lt_seen[idx_d[newly]] = unw._cc_tick
+                    fz_now = contact.data.net_forces_w_history[:, -1][:, feet_ids].norm(dim=-1)
+                    now_c = fz_now >= cc.CONTACT_FORCE_N
+                    lift = (unw._lt_contact[idx_d] & ~now_c[idx_d]).any(-1)
+                    acted = lift & (unw._lt_seen[idx_d] >= 0) & ~unw._lt_done[idx_d]
+                    if acted.any():
+                        k2 = idx_d[acted]
+                        lead = (unw._cc_tick - unw._lt_seen[k2]).float()
+                        stats["lt_sum_s"] += float(lead.sum()) * dt
+                        stats["lt_n"] += int(k2.numel())
+                        unw._lt_done[k2] = True
+                    unw._lt_contact[idx_d] = now_c[idx_d]
+            if unw._cc_tick % cc.STALL_WINDOW_STEPS == 0:
+                cmd_x = unw.command_manager.get_command("base_velocity")[:, 0]
+                stall_det.on_window(robot.data.root_pos_w[:, 0],
+                                    unw._curr_pool == 3,
+                                    cmd_x.abs() > 0.1)
+                unw._down_stall = stall_det.stall
             if unw._cc_tick % 250 == 0:
                 hh = torch.bincount(terrain.terrain_levels[curr_ids],
                                     minlength=num_rows)
@@ -346,6 +517,61 @@ def main(args, simulation_app):
           "(up->TOP platform, down->BOTTOM platform); floor row 1; "
           "single-pass promote / demote-on-fail (streak telemetry only); "
           f"full-episode per-pool stats; track_w={args.track_w}", flush=True)
+
+    # ---- v1.3.5: forward-shifted POLICY view; rewards keep centered scan ----
+    # Decoupled per user spec: base_height/gait datum still reads the original
+    # centered 0.5x0.5 scanner (its reference error audited at ~1 cm); only
+    # the policy/critic heights term moves forward so the NEXT tread enters
+    # observation before stepping. Misses become an explicit unknown sentinel
+    # (-2.0, outside the [-1,1] physical clip range), never a fake height.
+    if args.fwd_shift > 0:
+        from isaaclab.sensors.ray_caster import RayCasterCfg
+        from isaaclab.sensors.ray_caster.patterns.patterns_cfg import GridPatternCfg
+        from isaaclab.managers import SceneEntityCfg as _SE
+
+        def _shifted_grid_pattern(pcfg, device):
+            x = torch.arange(-pcfg.size[0] / 2 + pcfg.shift_x,
+                             pcfg.size[0] / 2 + pcfg.shift_x + 1e-9,
+                             pcfg.resolution, device=device)
+            y = torch.arange(-pcfg.size[1] / 2, pcfg.size[1] / 2 + 1e-9,
+                             pcfg.resolution, device=device)
+            gx, gy = torch.meshgrid(x, y, indexing="xy")
+            starts = torch.zeros(gx.numel(), 3, device=device)
+            starts[:, 0] = gx.flatten()
+            starts[:, 1] = gy.flatten()
+            dirs = torch.zeros_like(starts)
+            dirs[:, 2] = -1.0
+            return starts, dirs
+
+        from isaaclab.utils import configclass as _configclass
+
+        @_configclass
+        class _ShiftedGridCfg(GridPatternCfg):
+            shift_x: float = float(args.fwd_shift)
+            func = _shifted_grid_pattern
+
+        fwd_cfg = RayCasterCfg(
+            prim_path="{ENV_REGEX_NS}/Robot/base_Link",
+            attach_yaw_only=True,
+            pattern_cfg=_ShiftedGridCfg(resolution=0.05, size=(0.5, 0.5)),
+            debug_vis=False, mesh_prim_paths=["/World/ground"])
+        fwd_cfg.update_period = env_cfg.decimation * env_cfg.sim.dt
+        env_cfg.scene.height_scanner_fwd = fwd_cfg
+
+        def _heights_fwd_obs(env, sensor_cfg):
+            s = env.scene[sensor_cfg.name]
+            rz = env.scene["robot"].data.root_pos_w[:, 2].unsqueeze(1)
+            return cc.heights_forward_miss_marked(s.data.ray_hits_w[..., 2], rz)
+
+        for _grp in (env_cfg.observations.policy, env_cfg.observations.critic):
+            _t = getattr(_grp, "heights", None)
+            if _t is not None:
+                _t.func = _heights_fwd_obs
+                _t.params = {"sensor_cfg": _SE("height_scanner_fwd")}
+        print(f"[CURR_FWD_VIEW] policy/critic heights -> scan shifted +"
+              f"{args.fwd_shift} m (121 rays kept, checkpoint dims intact); "
+              f"misses = {cc.HEIGHTS_MISS_SENTINEL} (unknown, not fake ground); "
+              f"reward datum UNCHANGED (centered scanner)", flush=True)
     with torch.no_grad():
         unw._reset_idx(torch.arange(N, device=dev))    # spawn everyone at assigned cells
 
@@ -381,6 +607,15 @@ def main(args, simulation_app):
                     pool_ep[p][k] = 0 if isinstance(pool_ep[p][k], int) else 0.0
             stk_u = unw._streak[pool_ids["up"]].float()
             stk_d = unw._streak[pool_ids["down"]].float()
+            m_extra = {}
+            fwd_s = unw.scene.sensors.get("height_scanner_fwd")
+            if fwd_s is not None:
+                miss = ~torch.isfinite(fwd_s.data.ray_hits_w[..., 2])
+                m_extra["fwd_miss_frac_down"] = round(
+                    float(miss[pool_ids["down"]].float().mean()), 4)
+            if stats["lt_n"] > 0:
+                m_extra["lead_time_mean_s"] = round(stats["lt_sum_s"] / stats["lt_n"], 3)
+                m_extra["lead_time_n"] = stats["lt_n"]
             m = {"tag": tag, "iteration": int(runner.current_learning_iteration),
                  "heights_norm_actor": float(W[:, 45:166].norm()),
                  "heights_norm_critic": float(C[:, 45:166].norm()),
@@ -393,6 +628,9 @@ def main(args, simulation_app):
                  "pool_episodes": ep_view,
                  "streak_mean_up": round(float(stk_u.mean()), 2),
                  "streak_mean_down": round(float(stk_d.mean()), 2),
+                 "fh_diag": dict(getattr(unw, "_fh_diag", {})),
+                 "bonus_diag": dict(getattr(unw, "_bonus_diag", {})),
+                 **m_extra,
                  "role_tally": dict(getattr(unw, "_role_tally", {}))}
             try:                                       # native TB curriculum curves
                 wr = getattr(runner, "writer", None)
@@ -482,6 +720,18 @@ if __name__ == "__main__":
     parser.add_argument("--iters", type=int, default=200)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--track_w", type=float, default=2.5)
+    parser.add_argument("--still_w", type=float, default=0.0,
+                        help="down-pool sustained-stall penalty weight "
+                             "(pre-registered range 1/5~1/3 of track_w; default OFF)")
+    parser.add_argument("--fh_w", type=float, default=0.0,
+                        help="down-pool foothold guidance weight, CoM-stride "
+                             "bound (v1.3.4; default OFF)")
+    parser.add_argument("--fwd_shift", type=float, default=0.15,
+                        help="forward shift of the POLICY height scan in m "
+                             "(v1.3.5; rewards keep the centered scan; 0=off)")
+    parser.add_argument("--bonus_w", type=float, default=0.0,
+                        help="one-shot first-step bounty for the down pool, "
+                             "parallel to foothold (v1.3.6; default OFF)")
     parser.add_argument("--pin_flat", type=int, default=819)
     parser.add_argument("--pin_rough", type=int, default=819)
     parser.add_argument("--pool_up", type=int, default=1843)
