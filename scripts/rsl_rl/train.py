@@ -136,7 +136,7 @@ def main():
             resume_path = get_checkpoint_path(log_root_path, agent_cfg.load_run, agent_cfg.load_checkpoint)
         print(f"[INFO]: Loading model checkpoint from: {resume_path}")
         # load previously trained model
-        runner.load(resume_path)
+        runner.load(resume_path, load_optimizer=True)
 
     # set seed of the environment
     env.seed(agent_cfg.seed)

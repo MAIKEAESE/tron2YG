@@ -229,3 +229,61 @@ gym.register(
         "rsl_rl_cfg_entry_point": limx_wfyg_tron2a_blind_rough_runner_cfg,
     },
 )
+
+
+######################################
+# SFYG_TRON2A Percept Rough Environment (2026-10-23 terrain adaptation line)
+######################################
+from bipedal_locomotion.tasks.locomotion.robots.percept_yg_tron2a_env_cfg import (
+    SFYG_TRON2A_PerceptRoughEnvCfg,
+    SFYG_TRON2A_PerceptRoughEnvCfg_PLAY,
+)
+
+gym.register(
+    id="Isaac-Limx-SFYG-TRON2A-Percept-Rough-v0",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": SFYG_TRON2A_PerceptRoughEnvCfg,
+        "rsl_rl_cfg_entry_point": limx_sfyg_tron2a_blind_rough_runner_cfg,
+    },
+)
+
+gym.register(
+    id="Isaac-Limx-SFYG-TRON2A-Percept-Rough-Play-v0",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": SFYG_TRON2A_PerceptRoughEnvCfg_PLAY,
+        "rsl_rl_cfg_entry_point": limx_sfyg_tron2a_blind_rough_runner_cfg,
+    },
+)
+
+
+######################################
+# SFYG_TRON2A Percept Stair Environment (2026-10-24 stair curriculum)
+######################################
+from bipedal_locomotion.tasks.locomotion.robots.percept_stair_env_cfg import (
+    SFYG_TRON2A_PerceptStairEnvCfg,
+    SFYG_TRON2A_PerceptStairEnvCfg_PLAY,
+)
+
+gym.register(
+    id="Isaac-Limx-SFYG-TRON2A-Percept-Stair-v0",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": SFYG_TRON2A_PerceptStairEnvCfg,
+        "rsl_rl_cfg_entry_point": limx_sfyg_tron2a_blind_rough_runner_cfg,
+    },
+)
+
+gym.register(
+    id="Isaac-Limx-SFYG-TRON2A-Percept-Stair-Play-v0",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": SFYG_TRON2A_PerceptStairEnvCfg_PLAY,
+        "rsl_rl_cfg_entry_point": limx_sfyg_tron2a_blind_rough_runner_cfg,
+    },
+)
