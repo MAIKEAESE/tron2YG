@@ -98,8 +98,11 @@ def main(args, simulation_app):
                 env._bonus_diag = {"paid": 0, "sum": 0.0}
             if not hasattr(env, "_fh_r_step"):
                 import torch as _rt
-                env._fh_r_step = _rt.zeros(env.num_envs, device=env.device)
-                env._fh_tgt_step = _rt.full((env.num_envs,), -1,
+                # PER-FOOT storage (P2-1 fix 2026-10-25): summing both feet's
+                # landing quality let two 0.3-quality landings clear the 0.5
+                # threshold together and farm the 20-point bounty
+                env._fh_r_step = _rt.zeros(env.num_envs, 2, device=env.device)
+                env._fh_tgt_step = _rt.full((env.num_envs, 2), -1,
                                             dtype=_rt.long, device=env.device)
             env._fh_r_step.fill_(0.0)
             env._fh_tgt_step.fill_(-1)
@@ -121,8 +124,8 @@ def main(args, simulation_app):
                         robot.data.body_pos_w[idx, feet_body[foot], 0],
                         robot.data.root_pos_w[idx, 0])
                     reward[idx] += r
-                    env._fh_r_step[idx] += r
-                    env._fh_tgt_step[idx] = t_idx
+                    env._fh_r_step[idx, foot] = r
+                    env._fh_tgt_step[idx, foot] = t_idx
                     diag["land"] += int(idx.numel())
                     diag["paid"] += int((r > 0.05).sum())
                     diag["sum"] += float(r.sum())
@@ -145,15 +148,18 @@ def main(args, simulation_app):
                 tstep = getattr(env, "_fh_tgt_step", None)
                 if fh is None or rstep is None or tstep is None:
                     return _t.zeros(env.num_envs, device=env.device)
-                elig = (rstep >= cc.BONUS_QUALITY) & (env._curr_pool == 3)
                 bonus = _t.zeros(env.num_envs, device=env.device)
-                if elig.any():
-                    idx = elig.nonzero(as_tuple=False).squeeze(-1)
-                    bonus[idx] = fh.first_step_bonus(idx, rstep[idx], tstep[idx])
-                    diag = getattr(env, "_bonus_diag", None)
-                    if diag is not None:
-                        diag["paid"] += int((bonus > 0).sum())
-                        diag["sum"] += float((bonus > 0).sum()) * args.bonus_w
+                down_m = env._curr_pool == 3
+                for foot in (0, 1):        # per-foot threshold (P2-1 fix)
+                    elig = (rstep[:, foot] >= cc.BONUS_QUALITY) & down_m
+                    if elig.any():
+                        idx = elig.nonzero(as_tuple=False).squeeze(-1)
+                        bonus[idx] += fh.first_step_bonus(
+                            idx, rstep[idx, foot], tstep[idx, foot])
+                diag = getattr(env, "_bonus_diag", None)
+                if diag is not None:
+                    diag["paid"] += int((bonus > 0).sum())
+                    diag["sum"] += float((bonus > 0).sum()) * args.bonus_w
                 return bonus * (1.0 / env.step_dt)   # event reward: cancel dt
             # NOTE: relies on term order — down_foothold runs first in the
             # reward manager (insertion order) and fills env._fh_r_step
@@ -166,6 +172,64 @@ def main(args, simulation_app):
                   f"(up to {cc.FOOTHOLD_NUM_TARGETS}x); quality>="
                   f"{cc.BONUS_QUALITY}; w={args.bonus_w} "
                   f"(parallel to foothold, separate TB curve)", flush=True)
+
+    # ---- v1.3.5: forward-shifted POLICY view; rewards keep centered scan ----
+    # Decoupled per user spec: base_height/gait datum still reads the original
+    # centered 0.5x0.5 scanner (its reference error audited at ~1 cm); only
+    # the policy/critic heights term moves forward so the NEXT tread enters
+    # observation before stepping. Misses become an explicit unknown sentinel
+    # (-2.0, outside the [-1,1] physical clip range), never a fake height.
+    # MUST run BEFORE gym.make: managers snapshot the cfg at env creation
+    # (P1 fix 2026-10-25 — the original placement after env creation never
+    # reached the sensor/observation managers and silently did nothing).
+    if args.fwd_shift > 0:
+        from isaaclab.sensors.ray_caster import RayCasterCfg
+        from isaaclab.sensors.ray_caster.patterns.patterns_cfg import GridPatternCfg
+        from isaaclab.managers import SceneEntityCfg as _SE
+
+        def _shifted_grid_pattern(pcfg, device):
+            x = torch.arange(-pcfg.size[0] / 2 + pcfg.shift_x,
+                             pcfg.size[0] / 2 + pcfg.shift_x + 1e-9,
+                             pcfg.resolution, device=device)
+            y = torch.arange(-pcfg.size[1] / 2, pcfg.size[1] / 2 + 1e-9,
+                             pcfg.resolution, device=device)
+            gx, gy = torch.meshgrid(x, y, indexing="xy")
+            starts = torch.zeros(gx.numel(), 3, device=device)
+            starts[:, 0] = gx.flatten()
+            starts[:, 1] = gy.flatten()
+            dirs = torch.zeros_like(starts)
+            dirs[:, 2] = -1.0
+            return starts, dirs
+
+        from isaaclab.utils import configclass as _configclass
+
+        @_configclass
+        class _ShiftedGridCfg(GridPatternCfg):
+            shift_x: float = float(args.fwd_shift)
+            func = _shifted_grid_pattern
+
+        fwd_cfg = RayCasterCfg(
+            prim_path="{ENV_REGEX_NS}/Robot/base_Link",
+            attach_yaw_only=True,
+            pattern_cfg=_ShiftedGridCfg(resolution=0.05, size=(0.5, 0.5)),
+            debug_vis=False, mesh_prim_paths=["/World/ground"])
+        fwd_cfg.update_period = env_cfg.decimation * env_cfg.sim.dt
+        env_cfg.scene.height_scanner_fwd = fwd_cfg
+
+        def _heights_fwd_obs(env, sensor_cfg):
+            s = env.scene[sensor_cfg.name]
+            rz = env.scene["robot"].data.root_pos_w[:, 2].unsqueeze(1)
+            return cc.heights_forward_miss_marked(s.data.ray_hits_w[..., 2], rz)
+
+        for _grp in (env_cfg.observations.policy, env_cfg.observations.critic):
+            _t = getattr(_grp, "heights", None)
+            if _t is not None:
+                _t.func = _heights_fwd_obs
+                _t.params = {"sensor_cfg": _SE("height_scanner_fwd")}
+        print(f"[CURR_FWD_VIEW] policy/critic heights -> scan shifted +"
+              f"{args.fwd_shift} m (121 rays kept, checkpoint dims intact); "
+              f"misses = {cc.HEIGHTS_MISS_SENTINEL} (unknown, not fake ground); "
+              f"reward datum UNCHANGED (centered scanner)", flush=True)
 
     step_heights = (0.04, 0.06, 0.08)
     num_rows, num_cols = 1 + len(step_heights), 4
@@ -294,7 +358,19 @@ def main(args, simulation_app):
             runner.alg.optimizer.load_state_dict(ckpt["optimizer_state_dict"])
         except Exception:
             pass
-    print("[CURR_LOAD_OK]", f"parent_iter={ckpt.get('iter')}", flush=True)
+    # P2-3 fix 2026-10-25: the encoder optimizer was SAVED but never
+    # restored — Adam moments silently reset on every continuation
+    enc_ok = False
+    if "encoder_optimizer_state_dict" in ckpt and \
+            getattr(runner.alg, "extra_optimizer", None) is not None:
+        try:
+            runner.alg.extra_optimizer.load_state_dict(
+                ckpt["encoder_optimizer_state_dict"])
+            enc_ok = True
+        except Exception:
+            pass
+    print("[CURR_LOAD_OK]", f"parent_iter={ckpt.get('iter')} "
+          f"enc_optimizer_restored={enc_ok}", flush=True)
 
     # ---- arm A: heights zeroing (optional control arm) --------------------
     if args.arm == "A":
@@ -518,60 +594,6 @@ def main(args, simulation_app):
           "single-pass promote / demote-on-fail (streak telemetry only); "
           f"full-episode per-pool stats; track_w={args.track_w}", flush=True)
 
-    # ---- v1.3.5: forward-shifted POLICY view; rewards keep centered scan ----
-    # Decoupled per user spec: base_height/gait datum still reads the original
-    # centered 0.5x0.5 scanner (its reference error audited at ~1 cm); only
-    # the policy/critic heights term moves forward so the NEXT tread enters
-    # observation before stepping. Misses become an explicit unknown sentinel
-    # (-2.0, outside the [-1,1] physical clip range), never a fake height.
-    if args.fwd_shift > 0:
-        from isaaclab.sensors.ray_caster import RayCasterCfg
-        from isaaclab.sensors.ray_caster.patterns.patterns_cfg import GridPatternCfg
-        from isaaclab.managers import SceneEntityCfg as _SE
-
-        def _shifted_grid_pattern(pcfg, device):
-            x = torch.arange(-pcfg.size[0] / 2 + pcfg.shift_x,
-                             pcfg.size[0] / 2 + pcfg.shift_x + 1e-9,
-                             pcfg.resolution, device=device)
-            y = torch.arange(-pcfg.size[1] / 2, pcfg.size[1] / 2 + 1e-9,
-                             pcfg.resolution, device=device)
-            gx, gy = torch.meshgrid(x, y, indexing="xy")
-            starts = torch.zeros(gx.numel(), 3, device=device)
-            starts[:, 0] = gx.flatten()
-            starts[:, 1] = gy.flatten()
-            dirs = torch.zeros_like(starts)
-            dirs[:, 2] = -1.0
-            return starts, dirs
-
-        from isaaclab.utils import configclass as _configclass
-
-        @_configclass
-        class _ShiftedGridCfg(GridPatternCfg):
-            shift_x: float = float(args.fwd_shift)
-            func = _shifted_grid_pattern
-
-        fwd_cfg = RayCasterCfg(
-            prim_path="{ENV_REGEX_NS}/Robot/base_Link",
-            attach_yaw_only=True,
-            pattern_cfg=_ShiftedGridCfg(resolution=0.05, size=(0.5, 0.5)),
-            debug_vis=False, mesh_prim_paths=["/World/ground"])
-        fwd_cfg.update_period = env_cfg.decimation * env_cfg.sim.dt
-        env_cfg.scene.height_scanner_fwd = fwd_cfg
-
-        def _heights_fwd_obs(env, sensor_cfg):
-            s = env.scene[sensor_cfg.name]
-            rz = env.scene["robot"].data.root_pos_w[:, 2].unsqueeze(1)
-            return cc.heights_forward_miss_marked(s.data.ray_hits_w[..., 2], rz)
-
-        for _grp in (env_cfg.observations.policy, env_cfg.observations.critic):
-            _t = getattr(_grp, "heights", None)
-            if _t is not None:
-                _t.func = _heights_fwd_obs
-                _t.params = {"sensor_cfg": _SE("height_scanner_fwd")}
-        print(f"[CURR_FWD_VIEW] policy/critic heights -> scan shifted +"
-              f"{args.fwd_shift} m (121 rays kept, checkpoint dims intact); "
-              f"misses = {cc.HEIGHTS_MISS_SENTINEL} (unknown, not fake ground); "
-              f"reward datum UNCHANGED (centered scanner)", flush=True)
     with torch.no_grad():
         unw._reset_idx(torch.arange(N, device=dev))    # spawn everyone at assigned cells
 
@@ -664,9 +686,11 @@ def main(args, simulation_app):
         return m
 
     mons = [monitor("pre")]
-    chunks = max(args.iters // 50, 1)
-    for ci in range(chunks):
-        runner.learn(num_learning_iterations=50, init_at_random_ep_len=(ci == 0))
+    done = 0                                       # exact-iteration chunks
+    ci = 0                                         # (--iters 3 now runs 3,
+    while done < args.iters:                       #  not a full 50-update block)
+        n = min(50, args.iters - done)
+        runner.learn(num_learning_iterations=n, init_at_random_ep_len=(ci == 0))
         it = int(runner.current_learning_iteration)
         params_finite = all(torch.isfinite(p).all() for p in
                             runner.alg.actor_critic.parameters())
@@ -681,7 +705,7 @@ def main(args, simulation_app):
                 if getattr(runner.alg, "extra_optimizer", None) is not None else None),
             "iter": it,
             "parent_checkpoint_updates": 401,
-            "adaptation_updates": (ci + 1) * 50,
+            "adaptation_updates": done + n,
             "arm": args.arm, "lr": {"ppo": 1e-5, "encoder": 1e-5},
             "stage": "S1-pools-v1.3.2",
             "curriculum": {"up_hist": mon["up_pool_hist"],
@@ -690,8 +714,10 @@ def main(args, simulation_app):
                            "pool_episodes": mon["pool_episodes"],
                            "pools": {"flat": F, "rough": R, "up": U, "down": D}},
             "params_finite": params_finite,
-        }, out / f"model_{args.arm}_{(ci+1)*50:03d}.pt")
-        print(f"[CURR_CHUNK_OK] {ci+1}/{chunks} it={it} finite={params_finite} "
+        }, out / f"model_{args.arm}_{done + n:03d}.pt")
+        done += n
+        ci += 1
+        print(f"[CURR_CHUNK_OK] {ci} it={it} finite={params_finite} "
               f"up_hist={mon['up_pool_hist']} down_hist={mon['down_pool_hist']} "
               f"stats={json.dumps(mon['curriculum_stats'])}", flush=True)
         print(f"[CURR_MON] {json.dumps(mon)}", flush=True)
@@ -701,10 +727,13 @@ def main(args, simulation_app):
 
     (out / f"monitors_{args.arm}.json").write_text(json.dumps(mons, indent=1))
     (out / "run_meta.json").write_text(json.dumps({
-        "arm": args.arm, "chunks": chunks, "iters": args.iters,
-        "num_envs": N, "track_w": args.track_w,
+        "arm": args.arm, "iters": args.iters, "num_envs": N,
+        # full effective-knob archive (P2 fix: reward/perception params were
+        # previously only reconstructible from run.log prints)
+        "args": {k: (str(v) if not isinstance(v, (int, float, str, bool, type(None))) else v)
+                 for k, v in vars(args).items()},
         "pools": {"flat": F, "rough": R, "up": U, "down": D},
-        "design": "DESIGN.md v1.3.2 direction pools",
+        "design": "DESIGN.md v1.3.6b post-review fixes",
         "checkpoint": str(Path(args.checkpoint).resolve())}, indent=1))
     env.close()
     print("[CURR_DONE]", flush=True)

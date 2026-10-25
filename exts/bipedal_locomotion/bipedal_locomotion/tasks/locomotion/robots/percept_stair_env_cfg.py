@@ -27,7 +27,24 @@ from isaaclab.utils import configclass
 from bipedal_locomotion.tasks.locomotion.robots.percept_yg_tron2a_env_cfg import (
     _apply_perception,  # fix3 wiring (miss-safe heights, valid-hit rewards)
 )
-import stair_terrain  # from terrain_kit sys.path entry set by the launcher
+try:
+    import stair_terrain  # terrain_kit sys.path entry set by the launcher
+    _STAIR_TERRAIN_AVAILABLE = True
+except ImportError:
+    # P1 fix 2026-10-25: terrain_kit is launcher-provided, not vendored. A
+    # bare import here broke module load on machines without it — which
+    # took down the Flat/Rough entries too (they share robots/__init__).
+    # With the guard, Flat/Rough boot fine; Stair cfgs raise on use only.
+    stair_terrain = None
+    _STAIR_TERRAIN_AVAILABLE = False
+
+
+def _require_stair_terrain():
+    if stair_terrain is None:
+        raise ImportError(
+            "Percept-Stair requires the terrain_kit package (stair_terrain) "
+            "on sys.path — launchers from /root/autodl-tmp/terrain_kit set "
+            "this. Flat/Rough tasks remain usable without it.")
 
 
 def spawn_roled_stairs(env, robot_cfg: SceneEntityCfg, manifest_geom,
@@ -89,6 +106,7 @@ def _stage_params_from_env(defaults):
 
 
 def _apply_stairs(cfg, manifest_dir, episode_length_s, stair_params):
+    _require_stair_terrain()
     _apply_perception(cfg)                    # fix3 verbatim
     stair_terrain.MANIFEST_DIR = manifest_dir
     track = stair_terrain.StraightStairsCfg()

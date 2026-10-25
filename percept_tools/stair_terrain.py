@@ -64,26 +64,36 @@ def build_stair_meshes(h: float, N: int, d: float, cfg) -> list:
     x_top_end = x
     for j in range(1, N + 1):           # down steps: tread j at z = (N-j)*h
         z = (N - j) * h
-        if z > 1e-6:                     # z==0 tread is the ground plane itself
+        if z > 1e-6:                     # raised treads need a box; the final
             meshes.append(box(x + d / 2.0, z / 2.0, d, z))
-            edges.append({"x_local": round(x, 4), "z_low": round(z, 4),
-                          "z_high": round(z + h, 4), "dir": "down", "j": j})
+        # P1 fix 2026-10-25: register EVERY down edge. The z=0 tread previously
+        # skipped BOTH box and edge -> manifest had N-1 treads, goals/targets
+        # misderived, and (pre-heightfield) a 34 cm mesh gap. The final tread
+        # is now covered by the trailing platform below.
+        edges.append({"x_local": round(x, 4), "z_low": round(z, 4),
+                      "z_high": round(z + h, 4), "dir": "down", "j": j})
         x += d
-    total = x + 2.0                     # trailing bottom platform 2 m
-    meshes.append(box(x + 1.0, -0.1, 2.0, 0.2))
+    trail_start = x - d                  # trailing platform spans the final
+    trail_len = 2.0 + d                  # z=0 tread plus the 2 m exit apron
+    total = trail_start + trail_len
+    meshes.append(box(trail_start + trail_len / 2.0, -0.1, trail_len, 0.2))
+    dn_last = max(e["x_local"] for e in edges if e["dir"] == "down")
 
     cfg._manifest = {
         "step_height_m": h, "num_steps": N, "tread_m": round(d, 4),
         "edges": edges,
         "platforms": {"bottom_pre": [0.0, 2.0], "top": [round(x_top_start, 4), round(x_top_end, 4)],
-                      "bottom_post": [round(x, 4), round(total, 4)]},
+                      "bottom_post": [round(trail_start, 4), round(total, 4)]},
         "spawn_zones": {
             "bottom": {"x_local": [0.8, 1.2], "ground_z": 0.0},
             "top": {"x_local": [round(x_top_start + 0.3, 4),
                                  round(x_top_start + 0.3 + 0.4, 4)],
                     "ground_z": round(N * h, 4)}},
         "goals": {"up_goal_local_x": round(x_top_end - 0.1, 4),
-                  "down_goal_local_x": round(x + d + 0.6, 4)},
+                  # P2 fix 2026-10-25: last registered EDGE + 0.6 (was
+                  # loop-end + d + 0.6 = one tread too far). Training spawn
+                  # and screening both derive from this -> one shared line.
+                  "down_goal_local_x": round(dn_last + 0.6, 4)},
         "cell_total_len_m": round(total, 4),
         "seed": getattr(cfg, "cell_seed", None),
     }
